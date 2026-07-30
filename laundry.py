@@ -1,46 +1,39 @@
-import os
-import math
 import json
+import os
+import urllib.parse
+from datetime import datetime, timedelta
 import telebot
 import gspread
-import requests
-import urllib.parse
-from fpdf import FPDF
-from datetime import datetime, timedelta
 from oauth2client.service_account import ServiceAccountCredentials
+from fpdf import FPDF
+import requests
 
-# --- KONFIGURASI ---
-TOKEN = "7614899277:AAGhUBOI3atXqRb2IyHmO45CxC0elgDK16M"
-WA_LAUNDRY = "085641344448"
-BOS_ID = 1705785645
-WEB_OFFICIAL = "hanifalaundry.my.id"
+# --- KONFIGURASI (Membaca dari Environment Variables) ---
+TOKEN = os.getenv("BOT_TOKEN", "7614899277:AAGhUBOI3atXqRb2IyHmO45CxC0elgDK16M")
+WA_LAUNDRY = os.getenv("WA_LAUNDRY", "085641344448")
+BOS_ID = int(os.getenv("BOS_ID", "1705785645"))
+WEB_OFFICIAL = os.getenv("WEB_OFFICIAL", "hanifalaundry.my.id")
 
 bot = telebot.TeleBot(TOKEN)
 
-# --- KONEKSI GOOGLE SHEETS (KUNCI DI DALAM SCRIPT) ---
-KUNCI_AKUN_SERVIS = { 
-    "type": "service_account", 
-    "project_id": "tele-bot-493009", 
-    "private_key_id": "79f889a455412701c3070d37da7073db896b77ab", 
-    "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCnXQvvgqUncWaN\nCGDVGtaq/qUHgX3K3gqy57PtQkel5AWRYQzKrKKXLeo0RwP1ru4OTrCkOiA4OYUM\nID5I6KCYLE6AuCIeliIrU0ihxxfHP9mgCeoVUOV2MtWaS6UYJFCDba54K1gHQe5a\nvJ6jUsn+27lYkRmjNuvu3FxGS3/J2KKGIgH84ZeXn7/bKBBFnPa+YXMPwdylp0nh\nRCEY9DytXZGiIqvSY/EIliQtX3XXVJPoF5Hzwd2YQowQgkM1crvOO8F8U2YbksaB\nl0RVbsMnzvch2R3asggoLPjLubDnoNH8LyX2TSFTdwsQYuztE11aYc6AaWSCpGKV\ncJKoQF1NAgMBAAECggEAKOny+UQNpkkPaiJWc7pKKMa0JtPV4eJqqKZCgtmdZNVL\ntCjOxPwzijQ4CTwkIGs5eIdtoNQx3LTZDOgT+eReoBzSux5ofuQyabeELcJbUoMO\nK1TJJBlg4waV19CuxSpZgWuuh2OHM0z/nTB3spMSXOqvkpJ0O0V5o2y85RVfYcMd\nxdlqAQZErQ3LZXF3vqPpUpXvD1Q+EcEE5pkH/CMzBqYokrPt0vS6YMA8JIWAky8E\nyAg86iS93TkOd0FfRamDpz8ad8wYI62I8+N52jshWEuDIR5dWcUcU8t6jyVa7Yle\nwulqqAU/4QLHEq3CPbsWr4G6MLlZTauubfr+opj32QKBgQDbbOxdPKOt8a6SC2qw\n8fbJB7A6X961hSeZZX8HUbiOZilZJqpu5fmARDt9PrqOEIJzqmahQgmvwGZSNcjn\nzYFFt5bzK9pGhQEBEJNzVafiW+3GW9D0+uasKwgc0fn8nTlWqbgWCgVmCj7Kvgfz\nA/BpIC26I0vJaVY0Whg2pFmP1QKBgQDDQpdysL7+ebOKpwIM1q02vNob2mfwJ/CC\nUqplFF0eJNzWTpG8Vgvx1PlnJx5sJVd+TaEzs/934KA6BnHPx2diNOlV4UB5w5hG\nynggRkeN0uSC5f1RjM4iU7I1uvpC5R0t/QMA1P8jOlEoJoc9HA9D98n+SCafFthL\nqYIP7D5LmQKBgCalta/qWU3uzneMqTsHMxdPUlvFvP0tub7L4KbSXvY9yjSYmdY0\njVBpNC0oGkWhZMioj7EBZ6Fb+ump7Xved1FnN6AW7jgTfwzH9aCPyqUU2flg/JnZ\ngz15ytEArs4uhwXbmL/Q/ght74dYFyBXZkWt1D//rX6JHhTUdYVSRzANAoGAXfwa\nm7jZZfG8atuyT+2xGCzUqx14dA81Y/VYUSj5HT5PEdRlr4qXW0LQ/UbGDPX4ZDIH\nirR0HgZ/+Q4LECEB8TJYsd6nQzTTgheItLg/TtOY7Cy5vtwQiFNS7yvds/9GCVHE\ndU0QtasnTzUkWVS9QFDv6DZgaKj9WYXwtatX3NkCgYBmXslBcoVWWtTOYjmXC4gL\ny78BKzpS79ZzWNYJ62KvT9YlvNmGSAR7Fr1eFtTtrMX+NJ+iIn8ub5/4oqda7sT6\nYwsWQF3x7Le1ygJzX+Mv62pkRiZ2S5bl7l+jK0SP9oRcI0Yg8Z2TEcdfYsLMUhFQ\n/fDE92TGsXlTzgWlmlw2UQ==\n-----END PRIVATE KEY-----\n", 
-    "client_email": "telebot@tele-bot-493009.iam.gserviceaccount.com", 
-    "client_id": "104920716828165852728", 
-    "auth_uri": "https://accounts.google.com/o/oauth2/auth", 
-    "token_uri": "https://oauth2.googleapis.com/token", 
-    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs", 
-    "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/telebot%40tele-bot-493009.iam.gserviceaccount.com", 
-    "universe_domain": "googleapis.com" 
-}
-
+# --- KONEKSI GOOGLE SHEETS ---
 try:
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(KUNCI_AKUN_SERVIS, scope)
+    
+    # Cek apakah kredensial diset via Environment Variable di Piehost
+    google_creds_env = os.getenv("GOOGLE_CREDENTIALS_JSON")
+    if google_creds_env:
+        creds_dict = json.loads(google_creds_env)
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    else:
+        # Fallback jika dijalankan lokal dengan file kunci.json
+        creds = ServiceAccountCredentials.from_json_keyfile_name("kunci.json", scope)
+
     client = gspread.authorize(creds)
     sheet = client.open("Database Hanifa Laundry")
     ws_layanan = sheet.get_worksheet(0)
     ws_transaksi = sheet.get_worksheet(1)
     ws_pelanggan = sheet.get_worksheet(2)
-    print("Berhasil terkoneksi ke Google Sheets!")
 except Exception as e:
     print(f"Gagal koneksi ke Google Sheets: {e}")
 
@@ -65,26 +58,31 @@ def create_pdf_thermal(data):
     try:
         fname = f"nota_{data['inv']}.pdf"
         qr_file = f"temp_qr_{data['inv']}.png"
+
         tinggi = 170 if data.get('catatan') else 160
         pdf = FPDF(format=(58, tinggi))
         pdf.add_page()
         pdf.set_margins(3, 2, 3)
         pdf.set_auto_page_break(False)
-        
+
         # HEADER
         pdf.set_font("Arial", 'B', 12)
         pdf.set_x(0)
         pdf.cell(0, 6, "HANIFA LAUNDRY", ln=1, align='C')
+
         pdf.set_font("Arial", '', 6)
         pdf.cell(0, 3, "Genting Raya, Kalibagor, Banyumas", ln=1, align='C')
+
         pdf.set_font("Arial", 'I', 6)
         pdf.cell(0, 3, WEB_OFFICIAL, ln=1, align='C')
+
         pdf.set_font("Arial", '', 6)
         pdf.cell(0, 3, f"WA: {WA_LAUNDRY}", ln=1, align='C')
+
         pdf.set_draw_color(0, 0, 0)
         pdf.line(3, pdf.get_y(), 55, pdf.get_y())
         pdf.ln(2)
-        
+
         # DATA NOTA
         pdf.set_font("Arial", '', 8)
         pdf.set_x(3)
@@ -92,17 +90,19 @@ def create_pdf_thermal(data):
         pdf.cell(12, 4, "Nota", 0)
         pdf.set_font("Arial", '', 7)
         pdf.cell(0, 4, f": {data['inv']}", ln=1)
+
         pdf.set_x(3)
         pdf.set_font("Arial", 'B', 7)
         pdf.cell(12, 4, "Nama", 0)
         pdf.set_font("Arial", '', 7)
         pdf.cell(0, 4, f": {data['nama']}", ln=1)
+
         pdf.set_x(3)
         pdf.set_font("Arial", 'B', 7)
         pdf.cell(12, 4, "Masuk", 0)
         pdf.set_font("Arial", '', 7)
         pdf.cell(0, 4, f": {data['tgl_m']}", ln=1)
-        
+
         if data.get('catatan') and data['catatan'].strip():
             pdf.set_x(3)
             pdf.set_font("Arial", 'B', 7)
@@ -110,57 +110,61 @@ def create_pdf_thermal(data):
             pdf.set_font("Arial", 'I', 6)
             catatan_text = data['catatan'][:35]
             pdf.cell(0, 4, f": {catatan_text}", ln=1)
-            
+
         pdf.ln(1)
         pdf.line(3, pdf.get_y(), 55, pdf.get_y())
         pdf.ln(2)
-        
+
         # TABLE
         pdf.set_font("Arial", 'B', 7)
         pdf.set_x(3)
         pdf.cell(24, 5, "Layanan", 0)
         pdf.cell(15, 5, "Qty", 0, align='C')
         pdf.cell(13, 5, "Total", 0, align='R', ln=1)
+
         pdf.line(3, pdf.get_y(), 55, pdf.get_y())
         pdf.ln(1)
-        
+
         pdf.set_font("Arial", '', 7)
         pdf.set_x(3)
         layanan_txt = str(data['layanan'])[:18]
         pdf.cell(24, 5, layanan_txt, 0)
         pdf.cell(15, 5, f"{data['qty']} {data['unit']}", 0, align='C')
         pdf.cell(13, 5, f"{data['subtotal']}", 0, align='R', ln=1)
-        
+
         if data.get('ongkir', 0) > 0:
             pdf.set_x(3)
             pdf.cell(24, 5, "Ongkir", 0)
             pdf.cell(15, 5, "", 0)
             pdf.cell(13, 5, f"{data['ongkir']}", 0, align='R', ln=1)
-            
+
         pdf.ln(1)
         pdf.line(3, pdf.get_y(), 55, pdf.get_y())
         pdf.ln(2)
-        
+
         # TOTAL
         pdf.set_font("Arial", 'B', 10)
         pdf.set_x(3)
         pdf.cell(40, 6, "TOTAL", 0)
         pdf.set_font("Arial", 'B', 10)
         pdf.cell(12, 6, f"Rp {data['total']}", 0, ln=1, align='R')
+
         pdf.ln(1)
         pdf.line(3, pdf.get_y(), 55, pdf.get_y())
         pdf.ln(2)
-        
+
         pdf.set_font("Arial", 'I', 5)
         pdf.cell(0, 3, "Cucian diambil max 3 hari", ln=1, align='C')
+
         pdf.ln(1)
         pdf.line(3, pdf.get_y(), 55, pdf.get_y())
         pdf.ln(2)
-        
+
         # QR CODE
         bot_un = bot.get_me().username
         link_qr = f"https://t.me/{bot_un}?start={data['inv']}"
         api_qr = f"https://api.qrserver.com/v1/create-qr-code/?size=90x90&data={urllib.parse.quote(link_qr)}"
+
         qr_inserted = False
         try:
             r = requests.get(api_qr, timeout=8)
@@ -173,15 +177,17 @@ def create_pdf_thermal(data):
                 qr_inserted = True
         except:
             pass
-            
+
         pdf.set_font("Arial", '', 6)
         if qr_inserted:
             pdf.cell(0, 3, "Scan untuk cek status", ln=1, align='C')
             pdf.ln(1)
+
         pdf.set_font("Arial", 'B', 7)
         pdf.cell(0, 4, "*** TERIMA KASIH ***", ln=1, align='C')
-        
+
         pdf.output(fname)
+
         if os.path.exists(qr_file):
             os.remove(qr_file)
         return fname
@@ -205,18 +211,17 @@ def handle_start(message):
                 icon = "⏳" if found[6] == "Proses" else "✅" if found[6] == "Selesai" else "🧺"
                 qty_info = f"{found[4]} {found[7]}" if len(found) > 7 else found[4]
                 balasan = (f"📋 DETAIL NOTA HANIFA\n---------------------------\n"
-                           f"👤 Pelanggan: {found[2]}\n🎫 Nota: {found[1]}\n"
-                           f"🧺 Layanan: {found[3]}\n📦 Jumlah: {qty_info}\n"
-                           f"💰 Total: Rp {found[5]}\n---------------------------\n"
-                           f"📌 Status: {icon} {found[6]}\n---------------------------\n"
-                           f"🌐 {WEB_OFFICIAL}\nTerima kasih!")
+                          f"👤 Pelanggan: {found[2]}\n🎫 Nota: {found[1]}\n"
+                          f"🧺 Layanan: {found[3]}\n📦 Jumlah: {qty_info}\n"
+                          f"💰 Total: Rp {found[5]}\n---------------------------\n"
+                          f"📌 Status: {icon} {found[6]}\n---------------------------\n"
+                          f"🌐 {WEB_OFFICIAL}\nTerima kasih!")
                 bot.send_message(message.chat.id, balasan)
             else:
                 bot.send_message(message.chat.id, f"❌ Nota {nota_id} tidak ditemukan.")
         except:
             bot.send_message(message.chat.id, "❌ Gagal membaca database.")
         return
-        
     if is_bos(message):
         bot.send_message(message.chat.id, "Hanifa Laundry Aktif!", reply_markup=menu_utama())
     else:
@@ -239,9 +244,11 @@ def callback_router(call):
         icon = "⏳" if r[6] == "Proses" else "✅" if r[6] == "Selesai" else "🧺"
         txt = (f"📋 DETAIL NOTA\n---------------------------\n👤 {r[2]}\n🎫 {r[1]}\n🧺 {r[3]}\n💰 Rp {r[5]}\n{icon} Status: {r[6]}")
         m = telebot.types.InlineKeyboardMarkup()
-        m.add(telebot.types.InlineKeyboardButton("⏳ Proses", callback_data=f"u_{idx}_Proses"), telebot.types.InlineKeyboardButton("✅ Selesai", callback_data=f"u_{idx}_Selesai"))
+        m.add(telebot.types.InlineKeyboardButton("⏳ Proses", callback_data=f"u_{idx}_Proses"),
+              telebot.types.InlineKeyboardButton("✅ Selesai", callback_data=f"u_{idx}_Selesai"))
         m.add(telebot.types.InlineKeyboardButton("🧺 Diambil", callback_data=f"u_{idx}_Diambil"))
-        m.row(telebot.types.InlineKeyboardButton("🖨️ Print Ulang", callback_data=f"pr_{idx}"), telebot.types.InlineKeyboardButton("📱 Kirim WA", callback_data=f"rw_{idx}"))
+        m.row(telebot.types.InlineKeyboardButton("🖨️ Print Ulang", callback_data=f"pr_{idx}"),
+              telebot.types.InlineKeyboardButton("📲 Kirim WA", callback_data=f"rw_{idx}"))
         bot.edit_message_text(txt, call.message.chat.id, call.message.message_id, reply_markup=m)
     elif call.data.startswith('u_'):
         _, idx, st = call.data.split('_')
@@ -254,14 +261,22 @@ def callback_router(call):
         idx = int(call.data.split('_')[1])
         r = ws_transaksi.row_values(idx)
         d_p = {
-            'inv': r[1], 'nama': r[2], 'tgl_m': r[0], 'layanan': r[3], 'qty': r[4], 'total': r[5], 'subtotal': r[5], 'ongkir': 0,
-            'unit': r[7] if len(r) > 7 else 'Kg', 'catatan': r[10] if len(r) > 10 else ''
+            'inv': r[1],
+            'nama': r[2],
+            'tgl_m': r[0],
+            'layanan': r[3],
+            'qty': r[4],
+            'total': r[5],
+            'subtotal': r[5],
+            'ongkir': 0,
+            'unit': r[7] if len(r) > 7 else 'Kg',
+            'catatan': r[10] if len(r) > 10 else ''
         }
         pdf = create_pdf_thermal(d_p)
         if pdf:
             with open(pdf, "rb") as f:
                 bot.send_document(call.message.chat.id, f)
-            os.remove(pdf)
+                os.remove(pdf)
     elif call.data.startswith('rw'):
         idx = int(call.data.split('_')[1])
         r = ws_transaksi.row_values(idx)
@@ -271,13 +286,13 @@ def callback_router(call):
             qty_info = f"{r[4]} {r[7]}" if len(r) > 7 else r[4]
             catatan_txt = f"\n📝 Catatan: {r[10]}" if len(r) > 10 and r[10] else ""
             wa_t = (f"HANIFA LAUNDRY\n---------------------------\n"
-                    f"Pelanggan: {r[2]}\nNo. Nota: {r[1]}\n"
-                    f"Layanan: {r[3]}\n📦 Jumlah: {qty_info}\n"
-                    f"Subtotal: Rp {r[5]}\n"
-                    f"Total: Rp {r[5]}{catatan_txt}\n---------------------------\n"
-                    f"🌐 {WEB_OFFICIAL}\nTerima Kasih!")
+                   f"Pelanggan: {r[2]}\nNo. Nota: {r[1]}\n"
+                   f"Layanan: {r[3]}\n📦 Jumlah: {qty_info}\n"
+                   f"Subtotal: Rp {r[5]}\n"
+                   f"Total: Rp {r[5]}{catatan_txt}\n---------------------------\n"
+                   f"🌐 {WEB_OFFICIAL}\nTerima Kasih!")
             url = f"https://api.whatsapp.com/send?phone={pel['No HP']}&text={urllib.parse.quote(wa_t)}"
-            bot.send_message(call.message.chat.id, "📱 Link WA:", reply_markup=telebot.types.InlineKeyboardMarkup().add(telebot.types.InlineKeyboardButton("Kirim WA", url=url)))
+            bot.send_message(call.message.chat.id, "📲 Link WA:", reply_markup=telebot.types.InlineKeyboardMarkup().add(telebot.types.InlineKeyboardButton("Kirim WA", url=url)))
     elif call.data.startswith('oms'):
         tipe = call.data.split('_')[1]
         data = ws_transaksi.get_all_values()
@@ -291,20 +306,25 @@ def callback_router(call):
                 if len(r) > 9 and r[6] == "Diambil" and str(r[9]).strip() != "":
                     tgl_ambil_full = str(r[9]).split()[0]
                     cocok = False
-                    if tipe == "hari" and tgl_ambil_full == tgl_skrg: cocok = True
-                    elif tipe == "bulan" and bln_skrg in tgl_ambil_full: cocok = True
-                    elif tipe == "tahun" and thn_skrg in tgl_ambil_full: cocok = True
-                    
+                    if tipe == "hari" and tgl_ambil_full == tgl_skrg:
+                        cocok = True
+                    elif tipe == "bulan" and bln_skrg in tgl_ambil_full:
+                        cocok = True
+                    elif tipe == "tahun" and thn_skrg in tgl_ambil_full:
+                        cocok = True
                     if cocok:
                         angka = "".join(filter(str.isdigit, str(r[5])))
-                        if angka: total += int(angka)
+                        if angka:
+                            total += int(angka)
             except:
                 continue
         bot.edit_message_text(f"💰 OMSET {tipe.upper()}: Rp {total:,}", call.message.chat.id, call.message.message_id)
     elif call.data.startswith('editpel'):
         idx = int(call.data.split('_')[1])
         m = telebot.types.InlineKeyboardMarkup()
-        m.add(telebot.types.InlineKeyboardButton("Nama", callback_data=f"upel_{idx}_1"), telebot.types.InlineKeyboardButton("No HP", callback_data=f"upel_{idx}_2"), telebot.types.InlineKeyboardButton("Alamat", callback_data=f"upel_{idx}_3"))
+        m.add(telebot.types.InlineKeyboardButton("Nama", callback_data=f"upel_{idx}_1"),
+              telebot.types.InlineKeyboardButton("No HP", callback_data=f"upel_{idx}_2"),
+              telebot.types.InlineKeyboardButton("Alamat", callback_data=f"upel_{idx}_3"))
         bot.edit_message_text("Pilih kolom pelanggan yang akan diedit:", call.message.chat.id, call.message.message_id, reply_markup=m)
     elif call.data.startswith('upel'):
         _, idx, col = call.data.split('_')
@@ -313,7 +333,9 @@ def callback_router(call):
     elif call.data.startswith('editlay_'):
         idx = int(call.data.split('_')[1])
         m = telebot.types.InlineKeyboardMarkup()
-        m.add(telebot.types.InlineKeyboardButton("Nama Layanan", callback_data=f"ulay_{idx}_1"), telebot.types.InlineKeyboardButton("Harga", callback_data=f"ulay_{idx}_2"), telebot.types.InlineKeyboardButton("Hari", callback_data=f"ulay_{idx}_3"))
+        m.add(telebot.types.InlineKeyboardButton("Nama Layanan", callback_data=f"ulay_{idx}_1"),
+              telebot.types.InlineKeyboardButton("Harga", callback_data=f"ulay_{idx}_2"),
+              telebot.types.InlineKeyboardButton("Hari", callback_data=f"ulay_{idx}_3"))
         bot.edit_message_text("Pilih kolom layanan yang akan diedit:", call.message.chat.id, call.message.message_id, reply_markup=m)
     elif call.data.startswith('ulay'):
         _, idx, col = call.data.split('_')
@@ -345,8 +367,7 @@ def handle_text_bos(message):
         m = telebot.types.InlineKeyboardMarkup().add(
             telebot.types.InlineKeyboardButton("Harian", callback_data="oms_hari"),
             telebot.types.InlineKeyboardButton("Bulanan", callback_data="oms_bulan"),
-            telebot.types.InlineKeyboardButton("Tahunan", callback_data="oms_tahun")
-        )
+            telebot.types.InlineKeyboardButton("Tahunan", callback_data="oms_tahun"))
         bot.send_message(message.chat.id, "💰 Pilih laporan:", reply_markup=m)
     elif message.text == '⚙️ Tambah Layanan':
         start_tambah_layanan(message)
@@ -464,36 +485,53 @@ def process_catatan(m, ud):
     if m.text == '❌ BATAL':
         handle_text_bos(m)
         return
+
     catatan = m.text.strip()
     if catatan.lower() == 'skip':
         catatan = ""
+
     ud['catatan'] = catatan
+
     total = ud['subtotal'] + ud['ongkir']
     inv = f"HNF-{datetime.now().strftime('%d%m%y%H%M')}"
     tgl_m = datetime.now().strftime("%d/%m/%Y %H:%M")
     tgl_s = (datetime.now() + timedelta(days=int(ud['hari']))).strftime("%d/%m/%Y")
+
     ws_transaksi.append_row([tgl_m, inv, ud['nama'], ud['layanan'], ud['qty'], total, "Proses", ud['unit'], tgl_s, "", catatan])
-    
+
     pdf_data = {
-        'nama': ud['nama'], 'inv': inv, 'tgl_m': tgl_m, 'layanan': ud['layanan'], 'qty': ud['qty'], 'unit': ud['unit'],
-        'subtotal': ud['subtotal'], 'ongkir': ud['ongkir'], 'total': total, 'catatan': catatan
+        'nama': ud['nama'],
+        'inv': inv,
+        'tgl_m': tgl_m,
+        'layanan': ud['layanan'],
+        'qty': ud['qty'],
+        'unit': ud['unit'],
+        'subtotal': ud['subtotal'],
+        'ongkir': ud['ongkir'],
+        'total': total,
+        'catatan': catatan
     }
     pdf = create_pdf_thermal(pdf_data)
+
     if pdf:
         ongkir_txt = f"\nOngkir: Rp {ud['ongkir']:,}" if ud['ongkir'] > 0 else ""
         catatan_txt = f"\n📝 Catatan: {catatan}" if catatan else ""
+
         wa_text = (f"HANIFA LAUNDRY\n---------------------------\n"
-                   f"Pelanggan: {ud['nama']}\nNo. Nota: {inv}\n"
-                   f"Layanan: {ud['layanan']}\n"
-                   f"📦 Jumlah: {ud['qty']} {ud['unit']}\n"
-                   f"Subtotal: Rp {ud['subtotal']:,}{ongkir_txt}\n"
-                   f"Total: Rp {total:,}{catatan_txt}\n---------------------------\n"
-                   f"🌐 {WEB_OFFICIAL}\nTerima Kasih!")
+                  f"Pelanggan: {ud['nama']}\nNo. Nota: {inv}\n"
+                  f"Layanan: {ud['layanan']}\n"
+                  f"📦 Jumlah: {ud['qty']} {ud['unit']}\n"
+                  f"Subtotal: Rp {ud['subtotal']:,}{ongkir_txt}\n"
+                  f"Total: Rp {total:,}{catatan_txt}\n---------------------------\n"
+                  f"🌐 {WEB_OFFICIAL}\nTerima Kasih!")
+
         url = f"https://api.whatsapp.com/send?phone={ud['phone']}&text={urllib.parse.quote(wa_text)}"
-        markup = telebot.types.InlineKeyboardMarkup().add(telebot.types.InlineKeyboardButton("📱 Kirim WA", url=url))
+        markup = telebot.types.InlineKeyboardMarkup().add(telebot.types.InlineKeyboardButton("📲 Kirim WA", url=url))
+
         with open(pdf, "rb") as f:
             bot.send_document(m.chat.id, f, caption="✅ Berhasil!", reply_markup=markup)
         os.remove(pdf)
+
     bot.send_message(m.chat.id, "Siap!", reply_markup=menu_utama())
 
 def start_tambah_layanan(m):
