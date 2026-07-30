@@ -1,0 +1,5 @@
+kunci.json
+.env
+__pycache__/
+*.pdf
+*.png
