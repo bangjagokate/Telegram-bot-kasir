@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import urllib.parse
 from datetime import datetime, timedelta
 import telebot
@@ -20,13 +21,13 @@ bot = telebot.TeleBot(TOKEN)
 try:
     scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
     
-    # Cek apakah kredensial diset via Environment Variable di Piehost
-    google_creds_env = os.getenv("GOOGLE_CREDENTIALS_JSON")
+    # Prioritas membaca kredensial dari Environment Variable
+    google_creds_env = os.getenv("GOOGLE_CREDENTIALS_JSON") or os.getenv("GOOGLE_CREDENTIALS")
     if google_creds_env:
         creds_dict = json.loads(google_creds_env)
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     else:
-        # Fallback jika dijalankan lokal dengan file kunci.json
+        # Fallback file lokal
         creds = ServiceAccountCredentials.from_json_keyfile_name("kunci.json", scope)
 
     client = gspread.authorize(creds)
@@ -37,9 +38,15 @@ try:
 except Exception as e:
     print(f"Gagal koneksi ke Google Sheets: {e}")
 
-# --- FUNGSI KEAMANAN ---
+# --- FUNGSI KEAMANAN & HELPER ---
 def is_bos(m):
     return m.from_user.id == BOS_ID
+
+def clean_latin(text):
+    """Menghapus karakter non-ASCII/Emoji agar FPDF tidak error"""
+    if not text:
+        return ""
+    return re.sub(r'[^\x00-\x7F]+', '', str(text))
 
 def menu_utama():
     markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -74,7 +81,7 @@ def create_pdf_thermal(data):
         pdf.cell(0, 3, "Genting Raya, Kalibagor, Banyumas", ln=1, align='C')
 
         pdf.set_font("Arial", 'I', 6)
-        pdf.cell(0, 3, WEB_OFFICIAL, ln=1, align='C')
+        pdf.cell(0, 3, clean_latin(WEB_OFFICIAL), ln=1, align='C')
 
         pdf.set_font("Arial", '', 6)
         pdf.cell(0, 3, f"WA: {WA_LAUNDRY}", ln=1, align='C')
@@ -89,13 +96,13 @@ def create_pdf_thermal(data):
         pdf.set_font("Arial", 'B', 7)
         pdf.cell(12, 4, "Nota", 0)
         pdf.set_font("Arial", '', 7)
-        pdf.cell(0, 4, f": {data['inv']}", ln=1)
+        pdf.cell(0, 4, f": {clean_latin(data['inv'])}", ln=1)
 
         pdf.set_x(3)
         pdf.set_font("Arial", 'B', 7)
         pdf.cell(12, 4, "Nama", 0)
         pdf.set_font("Arial", '', 7)
-        pdf.cell(0, 4, f": {data['nama']}", ln=1)
+        pdf.cell(0, 4, f": {clean_latin(data['nama'])}", ln=1)
 
         pdf.set_x(3)
         pdf.set_font("Arial", 'B', 7)
@@ -103,12 +110,12 @@ def create_pdf_thermal(data):
         pdf.set_font("Arial", '', 7)
         pdf.cell(0, 4, f": {data['tgl_m']}", ln=1)
 
-        if data.get('catatan') and data['catatan'].strip():
+        if data.get('catatan') and str(data['catatan']).strip():
             pdf.set_x(3)
             pdf.set_font("Arial", 'B', 7)
             pdf.cell(12, 4, "Catatan", 0)
             pdf.set_font("Arial", 'I', 6)
-            catatan_text = data['catatan'][:35]
+            catatan_text = clean_latin(data['catatan'])[:35]
             pdf.cell(0, 4, f": {catatan_text}", ln=1)
 
         pdf.ln(1)
@@ -127,9 +134,9 @@ def create_pdf_thermal(data):
 
         pdf.set_font("Arial", '', 7)
         pdf.set_x(3)
-        layanan_txt = str(data['layanan'])[:18]
+        layanan_txt = clean_latin(data['layanan'])[:18]
         pdf.cell(24, 5, layanan_txt, 0)
-        pdf.cell(15, 5, f"{data['qty']} {data['unit']}", 0, align='C')
+        pdf.cell(15, 5, f"{data['qty']} {clean_latin(data['unit'])}", 0, align='C')
         pdf.cell(13, 5, f"{data['subtotal']}", 0, align='R', ln=1)
 
         if data.get('ongkir', 0) > 0:
@@ -195,6 +202,7 @@ def create_pdf_thermal(data):
         print(f"Error PDF: {e}")
         return None
 
+# --- HANDLER START ---
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     args = message.text.split()
@@ -204,45 +212,56 @@ def handle_start(message):
             all_trans = ws_transaksi.get_all_values()
             found = None
             for row in all_trans[1:]:
-                if str(row[1]).strip().upper() == nota_id:
+                if len(row) > 1 and str(row[1]).strip().upper() == nota_id:
                     found = row
                     break
             if found:
-                icon = "⏳" if found[6] == "Proses" else "✅" if found[6] == "Selesai" else "🧺"
-                qty_info = f"{found[4]} {found[7]}" if len(found) > 7 else found[4]
+                status_txt = found[6] if len(found) > 6 else "Proses"
+                icon = "⏳" if status_txt == "Proses" else "✅" if status_txt == "Selesai" else "🧺"
+                unit_txt = found[7] if len(found) > 7 else "Kg"
+                qty_info = f"{found[4]} {unit_txt}" if len(found) > 4 else ""
+                
                 balasan = (f"📋 DETAIL NOTA HANIFA\n---------------------------\n"
                           f"👤 Pelanggan: {found[2]}\n🎫 Nota: {found[1]}\n"
                           f"🧺 Layanan: {found[3]}\n📦 Jumlah: {qty_info}\n"
                           f"💰 Total: Rp {found[5]}\n---------------------------\n"
-                          f"📌 Status: {icon} {found[6]}\n---------------------------\n"
+                          f"📌 Status: {icon} {status_txt}\n---------------------------\n"
                           f"🌐 {WEB_OFFICIAL}\nTerima kasih!")
                 bot.send_message(message.chat.id, balasan)
             else:
                 bot.send_message(message.chat.id, f"❌ Nota {nota_id} tidak ditemukan.")
-        except:
+        except Exception as e:
             bot.send_message(message.chat.id, "❌ Gagal membaca database.")
         return
+
     if is_bos(message):
         bot.send_message(message.chat.id, "Hanifa Laundry Aktif!", reply_markup=menu_utama())
     else:
         bot.send_message(message.chat.id, "Selamat datang! Scan QR di nota Anda.")
 
+# --- CALLBACK QUERY ROUTER ---
 @bot.callback_query_handler(func=lambda call: True)
 def callback_router(call):
     if call.data.startswith('p_'):
         bot.delete_message(call.message.chat.id, call.message.message_id)
         show_history(call.message, int(call.data.split('_')[1]))
-    elif call.data.startswith('selpel'):
-        _, idx, search = call.data.split('_')
+
+    elif call.data.startswith('selpel_'):
+        # Ringkas callback data untuk mencegah batas 64 byte
+        idx = int(call.data.split('_')[1])
         list_p = ws_pelanggan.get_all_records()
-        p = [p for p in list_p if search.lower() in p['Nama'].lower()][int(idx)]
-        bot.delete_message(call.message.chat.id, call.message.message_id)
-        show_service_menu(call.message, {'nama':p['Nama'], 'phone':str(p['No HP']), 'alamat':p['Alamat']})
+        if idx < len(list_p):
+            p = list_p[idx]
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+            show_service_menu(call.message, {'nama': p['Nama'], 'phone': str(p['No HP']), 'alamat': p['Alamat']})
+
     elif call.data.startswith('view_'):
         idx = int(call.data.split('_')[1])
         r = ws_transaksi.row_values(idx)
-        icon = "⏳" if r[6] == "Proses" else "✅" if r[6] == "Selesai" else "🧺"
-        txt = (f"📋 DETAIL NOTA\n---------------------------\n👤 {r[2]}\n🎫 {r[1]}\n🧺 {r[3]}\n💰 Rp {r[5]}\n{icon} Status: {r[6]}")
+        st = r[6] if len(r) > 6 else "Proses"
+        icon = "⏳" if st == "Proses" else "✅" if st == "Selesai" else "🧺"
+        txt = (f"📋 DETAIL NOTA\n---------------------------\n👤 {r[2]}\n🎫 {r[1]}\n🧺 {r[3]}\n💰 Rp {r[5]}\n{icon} Status: {st}")
+        
         m = telebot.types.InlineKeyboardMarkup()
         m.add(telebot.types.InlineKeyboardButton("⏳ Proses", callback_data=f"u_{idx}_Proses"),
               telebot.types.InlineKeyboardButton("✅ Selesai", callback_data=f"u_{idx}_Selesai"))
@@ -250,13 +269,17 @@ def callback_router(call):
         m.row(telebot.types.InlineKeyboardButton("🖨️ Print Ulang", callback_data=f"pr_{idx}"),
               telebot.types.InlineKeyboardButton("📲 Kirim WA", callback_data=f"rw_{idx}"))
         bot.edit_message_text(txt, call.message.chat.id, call.message.message_id, reply_markup=m)
+
     elif call.data.startswith('u_'):
         _, idx, st = call.data.split('_')
-        ws_transaksi.update_cell(int(idx), 7, st)
+        idx = int(idx)
+        ws_transaksi.update_cell(idx, 7, st) # Update Kolom 7 (Status)
         if st == "Diambil":
-            ws_transaksi.update_cell(int(idx), 10, datetime.now().strftime("%d/%m/%Y %H:%M"))
+            # Update Kolom 10 (Tanggal Ambil)
+            ws_transaksi.update_cell(idx, 10, datetime.now().strftime("%d/%m/%Y %H:%M"))
         bot.answer_callback_query(call.id, f"Status: {st}")
         bot.send_message(call.message.chat.id, f"✅ Nota diupdate ke: {st}", reply_markup=menu_utama())
+
     elif call.data.startswith('pr_'):
         idx = int(call.data.split('_')[1])
         r = ws_transaksi.row_values(idx)
@@ -276,12 +299,13 @@ def callback_router(call):
         if pdf:
             with open(pdf, "rb") as f:
                 bot.send_document(call.message.chat.id, f)
-                os.remove(pdf)
-    elif call.data.startswith('rw'):
+            os.remove(pdf)
+
+    elif call.data.startswith('rw_'):
         idx = int(call.data.split('_')[1])
         r = ws_transaksi.row_values(idx)
         list_p = ws_pelanggan.get_all_records()
-        pel = next((p for p in list_p if p['Nama'].lower() == r[2].lower()), None)
+        pel = next((p for p in list_p if str(p['Nama']).lower() == str(r[2]).lower()), None)
         if pel:
             qty_info = f"{r[4]} {r[7]}" if len(r) > 7 else r[4]
             catatan_txt = f"\n📝 Catatan: {r[10]}" if len(r) > 10 and r[10] else ""
@@ -293,7 +317,8 @@ def callback_router(call):
                    f"🌐 {WEB_OFFICIAL}\nTerima Kasih!")
             url = f"https://api.whatsapp.com/send?phone={pel['No HP']}&text={urllib.parse.quote(wa_t)}"
             bot.send_message(call.message.chat.id, "📲 Link WA:", reply_markup=telebot.types.InlineKeyboardMarkup().add(telebot.types.InlineKeyboardButton("Kirim WA", url=url)))
-    elif call.data.startswith('oms'):
+
+    elif call.data.startswith('oms_'):
         tipe = call.data.split('_')[1]
         data = ws_transaksi.get_all_values()
         total = 0
@@ -319,17 +344,20 @@ def callback_router(call):
             except:
                 continue
         bot.edit_message_text(f"💰 OMSET {tipe.upper()}: Rp {total:,}", call.message.chat.id, call.message.message_id)
-    elif call.data.startswith('editpel'):
+
+    elif call.data.startswith('editpel_'):
         idx = int(call.data.split('_')[1])
         m = telebot.types.InlineKeyboardMarkup()
         m.add(telebot.types.InlineKeyboardButton("Nama", callback_data=f"upel_{idx}_1"),
               telebot.types.InlineKeyboardButton("No HP", callback_data=f"upel_{idx}_2"),
               telebot.types.InlineKeyboardButton("Alamat", callback_data=f"upel_{idx}_3"))
         bot.edit_message_text("Pilih kolom pelanggan yang akan diedit:", call.message.chat.id, call.message.message_id, reply_markup=m)
-    elif call.data.startswith('upel'):
+
+    elif call.data.startswith('upel_'):
         _, idx, col = call.data.split('_')
         msg = bot.send_message(call.message.chat.id, "Masukkan data baru:", reply_markup=tombol_batal())
         bot.register_next_step_handler(msg, lambda m: proses_edit_cell(m, ws_pelanggan, int(idx), int(col)))
+
     elif call.data.startswith('editlay_'):
         idx = int(call.data.split('_')[1])
         m = telebot.types.InlineKeyboardMarkup()
@@ -337,7 +365,8 @@ def callback_router(call):
               telebot.types.InlineKeyboardButton("Harga", callback_data=f"ulay_{idx}_2"),
               telebot.types.InlineKeyboardButton("Hari", callback_data=f"ulay_{idx}_3"))
         bot.edit_message_text("Pilih kolom layanan yang akan diedit:", call.message.chat.id, call.message.message_id, reply_markup=m)
-    elif call.data.startswith('ulay'):
+
+    elif call.data.startswith('ulay_'):
         _, idx, col = call.data.split('_')
         msg = bot.send_message(call.message.chat.id, "Masukkan data baru:", reply_markup=tombol_batal())
         bot.register_next_step_handler(msg, lambda m: proses_edit_cell(m, ws_layanan, int(idx), int(col)))
@@ -352,6 +381,7 @@ def proses_edit_cell(m, ws, row, col):
     except:
         bot.send_message(m.chat.id, "❌ Gagal memperbarui data.", reply_markup=menu_utama())
 
+# --- HANDLER TEKS UTAMA ---
 @bot.message_handler(func=lambda m: True)
 def handle_text_bos(message):
     if not is_bos(message):
@@ -387,6 +417,7 @@ def handle_text_bos(message):
             m.add(telebot.types.InlineKeyboardButton(f"{r[0]}", callback_data=f"editlay_{i+2}"))
         bot.send_message(message.chat.id, "Pilih layanan yang ingin diedit:", reply_markup=m)
 
+# --- ALUR NOTA BARU ---
 def start_nota(m):
     msg = bot.send_message(m.chat.id, "Nama Pelanggan:", reply_markup=tombol_batal())
     bot.register_next_step_handler(msg, search_pelanggan)
@@ -397,18 +428,19 @@ def search_pelanggan(m):
         return
     nama_in = m.text
     list_p = ws_pelanggan.get_all_records()
-    matches = [p for p in list_p if nama_in.lower() in str(p['Nama']).lower()]
+    matches = [(i, p) for i, p in enumerate(list_p) if nama_in.lower() in str(p['Nama']).lower()]
+    
     if not matches:
         ud = {'nama': nama_in}
         msg = bot.send_message(m.chat.id, f"👤 {nama_in} baru. No HP:", reply_markup=tombol_batal())
         bot.register_next_step_handler(msg, lambda ms: get_hp_p(ms, ud))
     elif len(matches) == 1:
-        p = matches[0]
-        show_service_menu(m, {'nama':p['Nama'], 'phone':str(p['No HP']), 'alamat':p['Alamat']})
+        p = matches[0][1]
+        show_service_menu(m, {'nama': p['Nama'], 'phone': str(p['No HP']), 'alamat': p['Alamat']})
     else:
         markup = telebot.types.InlineKeyboardMarkup()
-        for i, p in enumerate(matches):
-            markup.add(telebot.types.InlineKeyboardButton(f"{p['Nama']} | {str(p['No HP'])[-4:]}", callback_data=f"selpel_{i}_{nama_in}"))
+        for orig_idx, p in matches:
+            markup.add(telebot.types.InlineKeyboardButton(f"{p['Nama']} | {str(p['No HP'])[-4:]}", callback_data=f"selpel_{orig_idx}"))
         bot.send_message(m.chat.id, "Pilih Pelanggan:", reply_markup=markup)
 
 def get_hp_p(m, ud):
@@ -534,6 +566,7 @@ def process_catatan(m, ud):
 
     bot.send_message(m.chat.id, "Siap!", reply_markup=menu_utama())
 
+# --- TAMBAH LAYANAN ---
 def start_tambah_layanan(m):
     msg = bot.send_message(m.chat.id, "Nama layanan baru:", reply_markup=tombol_batal())
     bot.register_next_step_handler(msg, save_l_n)
@@ -561,6 +594,7 @@ def save_l_u(m, ud):
     ws_layanan.append_row([ud['nama'], ud['harga'], m.text, "Kg"])
     bot.send_message(m.chat.id, "✅ Layanan berhasil ditambahkan!", reply_markup=menu_utama())
 
+# --- RIWAYAT ---
 def show_history(m, page):
     data = ws_transaksi.get_all_values()
     if len(data) <= 1:
@@ -572,7 +606,7 @@ def show_history(m, page):
     markup = telebot.types.InlineKeyboardMarkup()
     for i, r in enumerate(curr):
         idx = len(data) - ((page-1)*10 + i)
-        icon = "⏳" if r[6] == "Proses" else "✅" if r[6] == "Selesai" else "🧺"
+        icon = "⏳" if len(r) > 6 and r[6] == "Proses" else "✅" if len(r) > 6 and r[6] == "Selesai" else "🧺"
         markup.add(telebot.types.InlineKeyboardButton(f"{icon} {r[2]} | {r[1]}", callback_data=f"view_{idx}"))
     if len(rows) > 10:
         nav = []
