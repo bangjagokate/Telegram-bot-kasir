@@ -8,11 +8,14 @@ from fpdf import FPDF
 import requests
 from flask import Flask, request
 
+# --- KONFIGURASI ---
 TOKEN = os.getenv("BOT_TOKEN", "7614899277:AAGhUBOI3atXqRb2IyHmO45CxC0elgDK16M")
 WA_LAUNDRY = os.getenv("WA_LAUNDRY", "085641344448")
 BOS_ID = int(os.getenv("BOS_ID", "1705785645"))
 WEB_OFFICIAL = os.getenv("WEB_OFFICIAL", "hanifalaundry.my.id")
-GAS_URL = "https://script.google.com/macros/s/AKfycbybGRFNIHrJ2u_uleBjNl-4b6VAKI6x1Ey5JjoS-Yr3Et4eow1AJvAmwVxYFTfSwv2rBQ/exec"
+
+# URL Google Apps Script terbaru kamu
+GAS_URL = "https://script.google.com/macros/s/AKfycbxGy1EzP12gkttVIPI7GHl-H5xivrbXcXR6WyPmkwFlX3QAvu57hygkPkGhV5_p9DDewg/exec"
 
 bot = telebot.TeleBot(TOKEN, threaded=False)
 app = Flask(__name__)
@@ -77,6 +80,7 @@ def create_pdf_thermal(data):
             pdf.set_x(0)
             pdf.cell(58, 2, "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - -", ln=1, align='C')
 
+        # Header
         pdf.set_font("Arial", 'B', 11)
         pdf.set_x(0)
         pdf.cell(58, 5, "HANIFA LAUNDRY", ln=1, align='C')
@@ -92,6 +96,7 @@ def create_pdf_thermal(data):
         pdf.ln(1)
         draw_dashed_line()
 
+        # Info Nota
         pdf.set_font("Arial", '', 7)
         pdf.set_x(3)
         pdf.set_font("Arial", 'B', 7)
@@ -121,6 +126,7 @@ def create_pdf_thermal(data):
         pdf.ln(1)
         draw_dashed_line()
 
+        # Rincian Item
         pdf.set_x(3)
         pdf.set_font("Arial", 'B', 7)
         pdf.cell(22, 4, "Layanan", 0)
@@ -152,6 +158,7 @@ def create_pdf_thermal(data):
         pdf.cell(26, 5, f"Rp {total_num:,}", 0, align='R', ln=1)
         draw_dashed_line()
 
+        # Footer & QR
         pdf.set_font("Arial", 'I', 6)
         pdf.set_x(0)
         pdf.cell(58, 3, "Harap simpan nota ini.", ln=1, align='C')
@@ -190,12 +197,32 @@ def create_pdf_thermal(data):
         print(f"Error PDF: {e}")
         return None
 
-# --- HANDLER TANYAJAWAB BERURUTAN ---
+# --- HANDLER UTAMA ---
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     clear_session(message.chat.id)
     if is_bos(message):
         bot.send_message(message.chat.id, "Hanifa Laundry Aktif!", reply_markup=menu_utama())
+
+def show_history(m, page):
+    _, data, _ = get_all_sheets()
+    if len(data) <= 1:
+        bot.send_message(m.chat.id, "Belum ada transaksi.")
+        return
+    rows = data[1:]
+    rows.reverse()
+    curr = rows[(page-1)*10 : page*10]
+    markup = telebot.types.InlineKeyboardMarkup()
+    for i, r in enumerate(curr):
+        idx = len(data) - ((page-1)*10 + i)
+        icon = "⏳" if len(r) > 6 and r[6] == "Proses" else "✅" if len(r) > 6 and r[6] == "Selesai" else "🧺"
+        markup.add(telebot.types.InlineKeyboardButton(f"{icon} {r[2]} | {r[1]}", callback_data=f"view_{idx}"))
+    if len(rows) > 10:
+        nav = []
+        if page > 1: nav.append(telebot.types.InlineKeyboardButton("⬅️ Prev", callback_data=f"p_{page-1}"))
+        if page*10 < len(rows): nav.append(telebot.types.InlineKeyboardButton("Next ➡️", callback_data=f"p_{page+1}"))
+        markup.row(*nav)
+    bot.send_message(m.chat.id, f"📊 Riwayat Nota - Halaman {page}", reply_markup=markup)
 
 @bot.message_handler(func=lambda m: True)
 def handle_text_bos(message):
@@ -211,7 +238,35 @@ def handle_text_bos(message):
 
     step, data = get_session(chat_id)
 
-    # ALUR NOTA BARU BERURUTAN
+    # --- MENU TOMBOL UTAMA ---
+    if txt == '📊 Riwayat Nota':
+        show_history(message, 1)
+        return
+    elif txt == '💰 Cek Omset':
+        m = telebot.types.InlineKeyboardMarkup().add(
+            telebot.types.InlineKeyboardButton("Harian", callback_data="oms_hari"),
+            telebot.types.InlineKeyboardButton("Bulanan", callback_data="oms_bulan"),
+            telebot.types.InlineKeyboardButton("Tahunan", callback_data="oms_tahun"))
+        bot.send_message(chat_id, "💰 Pilih laporan omset:", reply_markup=m)
+        return
+    elif txt == '👥 Edit Pelanggan':
+        _, _, list_p = get_all_sheets()
+        m = telebot.types.InlineKeyboardMarkup()
+        for i, r in enumerate(list_p[1:]):
+            if r and len(r) > 0 and str(r[0]).strip():
+                m.add(telebot.types.InlineKeyboardButton(f"{r[0]}", callback_data=f"editpel_{i+2}"))
+        bot.send_message(chat_id, "Pilih pelanggan yang ingin diedit:", reply_markup=m)
+        return
+    elif txt == '🛠️ Edit Layanan':
+        data_l, _, _ = get_all_sheets()
+        m = telebot.types.InlineKeyboardMarkup()
+        for i, r in enumerate(data_l[1:]):
+            if r and len(r) > 0 and str(r[0]).strip():
+                m.add(telebot.types.InlineKeyboardButton(f"{r[0]}", callback_data=f"editlay_{i+2}"))
+        bot.send_message(chat_id, "Pilih layanan yang ingin diedit:", reply_markup=m)
+        return
+
+    # --- ALUR NOTA BARU BERURUTAN ---
     if txt == '📝 Nota Baru':
         set_session(chat_id, "nota_nama", {})
         bot.send_message(chat_id, "👤 Masukkan **Nama Pelanggan**:", parse_mode="Markdown", reply_markup=tombol_batal())
@@ -263,7 +318,7 @@ def handle_text_bos(message):
         data["catatan"] = "" if txt == "-" else txt
         clear_session(chat_id)
         
-        # PROSES PEMBUATAN NOTA AKHIR
+        # PROSES PENYIMPANAN DAN BIKIN PDF
         bot.send_message(chat_id, "⏳ Memproses nota ke Spreadsheet & mencetak PDF...")
         data_l, _, list_p = get_all_sheets()
 
@@ -323,6 +378,74 @@ def handle_text_bos(message):
 
     bot.send_message(chat_id, "Hanifa Laundry Aktif!", reply_markup=menu_utama())
 
+@bot.callback_query_handler(func=lambda call: True)
+def callback_router(call):
+    try:
+        if call.data.startswith('p_'):
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+            show_history(call.message, int(call.data.split('_')[1]))
+        elif call.data.startswith('view_'):
+            idx = int(call.data.split('_')[1])
+            _, all_trans, _ = get_all_sheets()
+            if idx <= len(all_trans):
+                r = all_trans[idx - 1]
+                st = r[6] if len(r) > 6 else "Proses"
+                icon = "⏳" if st == "Proses" else "✅" if st == "Selesai" else "🧺"
+                txt = (f"📋 DETAIL NOTA\n---------------------------\n👤 {r[2]}\n🎫 {r[1]}\n🧺 {r[3]}\n💰 Rp {r[5]}\n{icon} Status: {st}")
+                m = telebot.types.InlineKeyboardMarkup()
+                m.add(telebot.types.InlineKeyboardButton("⏳ Proses", callback_data=f"u_{idx}_Proses"),
+                      telebot.types.InlineKeyboardButton("✅ Selesai", callback_data=f"u_{idx}_Selesai"))
+                m.add(telebot.types.InlineKeyboardButton("🧺 Diambil", callback_data=f"u_{idx}_Diambil"))
+                m.row(telebot.types.InlineKeyboardButton("🖨️ Print Ulang", callback_data=f"pr_{idx}"),
+                      telebot.types.InlineKeyboardButton("📲 Kirim WA", callback_data=f"rw_{idx}"))
+                bot.edit_message_text(txt, call.message.chat.id, call.message.message_id, reply_markup=m)
+        elif call.data.startswith('u_'):
+            _, idx, st = call.data.split('_')
+            idx = int(idx)
+            send_gas("update_cell", {"sheet_name": "transaksi", "row": idx, "col": 7, "value": st})
+            if st == "Diambil":
+                send_gas("update_cell", {"sheet_name": "transaksi", "row": idx, "col": 10, "value": datetime.now().strftime("%d/%m/%Y %H:%M")})
+            bot.answer_callback_query(call.id, f"Status: {st}")
+            bot.send_message(call.message.chat.id, f"✅ Nota diupdate ke: {st}", reply_markup=menu_utama())
+        elif call.data.startswith('pr_'):
+            idx = int(call.data.split('_')[1])
+            _, all_trans, _ = get_all_sheets()
+            if idx <= len(all_trans):
+                r = all_trans[idx - 1]
+                d_p = {
+                    'inv': r[1], 'nama': r[2], 'tgl_m': r[0], 'layanan': r[3],
+                    'qty': r[4], 'total': r[5], 'subtotal': r[5], 'ongkir': 0,
+                    'unit': r[7] if len(r) > 7 else 'Kg', 'catatan': r[10] if len(r) > 10 else ''
+                }
+                pdf = create_pdf_thermal(d_p)
+                if pdf:
+                    with open(pdf, "rb") as f: bot.send_document(call.message.chat.id, f)
+                    os.remove(pdf)
+        elif call.data.startswith('oms_'):
+            tipe = call.data.split('_')[1]
+            _, data, _ = get_all_sheets()
+            total = 0
+            now = datetime.now()
+            tgl_skrg = now.strftime("%d/%m/%Y")
+            bln_skrg = now.strftime("%m/%Y")
+            thn_skrg = now.strftime("%Y")
+            for r in data[1:]:
+                try:
+                    if len(r) > 9 and r[6] == "Diambil" and str(r[9]).strip() != "":
+                        tgl_ambil_full = str(r[9]).split()[0]
+                        cocok = False
+                        if tipe == "hari" and tgl_ambil_full == tgl_skrg: cocok = True
+                        elif tipe == "bulan" and bln_skrg in tgl_ambil_full: cocok = True
+                        elif tipe == "tahun" and thn_skrg in tgl_skrg: cocok = True
+                        if cocok:
+                            angka = "".join(filter(str.isdigit, str(r[5])))
+                            if angka: total += int(angka)
+                except: continue
+            bot.edit_message_text(f"💰 OMSET {tipe.upper()}: Rp {total:,}", call.message.chat.id, call.message.message_id)
+    except Exception as e:
+        print(f"Callback Error: {e}")
+
+# --- ROUTE VERCEL WEBHOOK ---
 @app.route('/', methods=['POST'])
 def webhook():
     if request.headers.get('content-type') == 'application/json':
@@ -334,4 +457,4 @@ def webhook():
 
 @app.route('/', methods=['GET'])
 def index():
-    return "Hanifa Laundry Bot Session-based is Ready!"
+    return "Hanifa Laundry Bot is Live on Vercel!"
