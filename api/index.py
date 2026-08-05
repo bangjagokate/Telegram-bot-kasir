@@ -13,7 +13,9 @@ TOKEN = os.getenv("BOT_TOKEN", "7614899277:AAGhUBOI3atXqRb2IyHmO45CxC0elgDK16M")
 WA_LAUNDRY = os.getenv("WA_LAUNDRY", "085641344448")
 BOS_ID = int(os.getenv("BOS_ID", "1705785645"))
 WEB_OFFICIAL = os.getenv("WEB_OFFICIAL", "hanifalaundry.my.id")
-GAS_URL = "https://script.google.com/macros/s/AKfycbwHHdKSQ4xA8WV-8YYZnUQWY4vtmr96THjAsKVoP5woovfmMp023jyHTWRNvtvMFRpfKA/exec"
+
+# URL Google Apps Script terbaru
+GAS_URL = "https://script.google.com/macros/s/AKfycbyQWYBB9-c19X5jCJgMjA5nBQA5XFYVps4QP_zcgEnAIyY3DUXGUpWd5_yCAoJ_Y272nw/exec"
 
 bot = telebot.TeleBot(TOKEN, threaded=False)
 app = Flask(__name__)
@@ -209,7 +211,7 @@ def show_history(m, page):
     markup = telebot.types.InlineKeyboardMarkup()
     for i, r in enumerate(curr):
         idx = len(data) - ((page-1)*10 + i)
-        icon = "⏳" if len(r) > 6 and r[6] == "Proses" else "✅" if len(r) > 6 and r[6] == "Selesai" else "🧺"
+        icon = "⏳" if len(r) > 6 and str(r[6]).strip() == "Proses" else "✅" if len(r) > 6 and str(r[6]).strip() == "Selesai" else "🧺"
         markup.add(telebot.types.InlineKeyboardButton(f"{icon} {r[2]} | {r[1]}", callback_data=f"view_{idx}"))
     if len(rows) > 10:
         nav = []
@@ -406,7 +408,6 @@ def handle_text_bos(message):
         ongkir_str = data.get("ongkir", "0")
         catatan = data.get("catatan", "")
 
-        # PEMBERITAHUAN TAHAP PROSES
         bot.send_message(chat_id, "⏳ **Memproses Nota:**\n1️⃣ Menghitung total harga...\n2️⃣ Menyimpan transaksi ke Spreadsheet...\n3️⃣ Membuat PDF Nota Thermal...", parse_mode="Markdown")
 
         pel_exist = next((p for p in list_p[1:] if len(p) > 0 and str(p[0]).lower() == nama.lower()), None)
@@ -418,34 +419,26 @@ def handle_text_bos(message):
         
         harga = 7000
         if srv and len(srv) > 1:
-            try:
-                harga = int("".join(filter(str.isdigit, str(srv[1]))))
+            try: harga = int("".join(filter(str.isdigit, str(srv[1]))))
             except: pass
 
         hari = srv[2] if srv and len(srv) > 2 else "2"
         unit = srv[3] if srv and len(srv) > 3 else "Kg"
 
-        try:
-            qty = float(str(qty_str).replace(',', '.'))
-        except:
-            qty = 1.0
+        try: qty = float(str(qty_str).replace(',', '.'))
+        except: qty = 1.0
 
         subtotal = int(qty * harga)
-        
-        try:
-            ongkir = int("".join(filter(str.isdigit, str(ongkir_str)))) if any(c.isdigit() for c in str(ongkir_str)) else 0
-        except:
-            ongkir = 0
+        try: ongkir = int("".join(filter(str.isdigit, str(ongkir_str)))) if any(c.isdigit() for c in str(ongkir_str)) else 0
+        except: ongkir = 0
 
         total = subtotal + ongkir
 
         inv = f"HNF-{datetime.now().strftime('%d%m%y%H%M')}"
         tgl_m = datetime.now().strftime("%d/%m/%Y %H:%M")
         
-        try:
-            tgl_s = (datetime.now() + timedelta(days=int(hari))).strftime("%d/%m/%Y")
-        except:
-            tgl_s = (datetime.now() + timedelta(days=2)).strftime("%d/%m/%Y")
+        try: tgl_s = (datetime.now() + timedelta(days=int(hari))).strftime("%d/%m/%Y")
+        except: tgl_s = (datetime.now() + timedelta(days=2)).strftime("%d/%m/%Y")
 
         send_gas("add_transaksi", {"row": [tgl_m, inv, nama, layanan_nama, qty, total, "Proses", unit, tgl_s, "", catatan]})
 
@@ -513,7 +506,7 @@ def callback_router(call):
             if idx <= len(all_trans):
                 r = all_trans[idx - 1]
                 st = r[6] if len(r) > 6 else "Proses"
-                icon = "⏳" if st == "Proses" else "✅" if st == "Selesai" else "🧺"
+                icon = "⏳" if str(st).strip() == "Proses" else "✅" if str(st).strip() == "Selesai" else "🧺"
                 txt_view = (f"📋 DETAIL NOTA\n---------------------------\n👤 {r[2]}\n🎫 {r[1]}\n🧺 {r[3]}\n💰 Rp {r[5]}\n{icon} Status: {st}")
                 m = telebot.types.InlineKeyboardMarkup()
                 m.add(telebot.types.InlineKeyboardButton("⏳ Proses", callback_data=f"u_{idx}_Proses"),
@@ -527,8 +520,6 @@ def callback_router(call):
             _, idx, st = data.split('_')
             idx = int(idx)
             send_gas("update_cell", {"sheet_name": "transaksi", "row": idx, "col": 7, "value": st})
-            if st == "Diambil":
-                send_gas("update_cell", {"sheet_name": "transaksi", "row": idx, "col": 10, "value": datetime.now().strftime("%d/%m/%Y %H:%M")})
             bot.answer_callback_query(call.id, f"Status: {st}")
             bot.send_message(chat_id, f"✅ Nota diupdate ke: {st}", reply_markup=menu_utama())
 
@@ -555,18 +546,27 @@ def callback_router(call):
             tgl_skrg = now.strftime("%d/%m/%Y")
             bln_skrg = now.strftime("%m/%Y")
             thn_skrg = now.strftime("%Y")
+
             for r in data_trans[1:]:
                 try:
-                    if len(r) > 9 and r[6] == "Diambil" and str(r[9]).strip() != "":
-                        tgl_ambil_full = str(r[9]).split()[0]
-                        cocok = False
-                        if tipe == "hari" and tgl_ambil_full == tgl_skrg: cocok = True
-                        elif tipe == "bulan" and bln_skrg in tgl_ambil_full: cocok = True
-                        elif tipe == "tahun" and thn_skrg in tgl_skrg: cocok = True
-                        if cocok:
-                            angka = "".join(filter(str.isdigit, str(r[5])))
-                            if angka: total += int(angka)
-                except: continue
+                    if len(r) > 6:
+                        status_str = str(r[6]).strip()
+                        if status_str == "Diambil":
+                            tgl_ref = str(r[9]).strip() if len(r) > 9 and str(r[9]).strip() != "" else str(r[0]).strip()
+                            tgl_saja = tgl_ref.split()[0] if " " in tgl_ref else tgl_ref
+
+                            cocok = False
+                            if tipe == "hari" and tgl_saja == tgl_skrg: cocok = True
+                            elif tipe == "bulan" and bln_skrg in tgl_saja: cocok = True
+                            elif tipe == "tahun" and thn_skrg in tgl_saja: cocok = True
+
+                            if cocok:
+                                val_total = "".join(filter(str.isdigit, str(r[5])))
+                                if val_total: total += int(val_total)
+                except Exception as err:
+                    print(f"Error hitung omset: {err}")
+                    continue
+
             bot.edit_message_text(f"💰 OMSET {tipe.upper()}: Rp {total:,}", chat_id, call.message.message_id)
 
     except Exception as e:
