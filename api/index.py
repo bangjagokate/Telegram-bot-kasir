@@ -132,12 +132,12 @@ def create_pdf_thermal(data):
         pdf.set_x(3)
         pdf.set_font("Arial", '', 7)
         layanan_txt = clean_latin(data['layanan'])[:16]
-        subtotal_num = int("".join(filter(str.isdigit, str(data['subtotal'])))) if str(data['subtotal']).isdigit() else data['subtotal']
+        subtotal_num = int(data['subtotal'])
         pdf.cell(22, 4, layanan_txt, 0)
         pdf.cell(14, 4, f"{data['qty']} {clean_latin(data['unit'])}", 0, align='C')
         pdf.cell(16, 4, f"Rp {subtotal_num:,}", 0, align='R', ln=1)
 
-        if data.get('ongkir', 0) > 0:
+        if int(data.get('ongkir', 0)) > 0:
             pdf.set_x(3)
             ongkir_num = int(data['ongkir'])
             pdf.cell(22, 4, "Ongkir", 0)
@@ -146,7 +146,7 @@ def create_pdf_thermal(data):
 
         draw_dashed_line()
 
-        total_num = int("".join(filter(str.isdigit, str(data['total'])))) if str(data['total']).isdigit() else data['total']
+        total_num = int(data['total'])
         pdf.set_x(3)
         pdf.set_font("Arial", 'B', 9)
         pdf.cell(26, 5, "TOTAL BAYAR", 0)
@@ -273,7 +273,7 @@ def handle_text_bos(message):
         bot.send_message(chat_id, "Pilih layanan yang ingin diedit:", reply_markup=m)
         return
 
-    # --- ALUR STEP-BY-STEP EDIT PELANGGAN ---
+    # --- ALUR EDIT PELANGGAN ---
     if step == "editpel_nama":
         data["nama"] = txt
         set_session(chat_id, "editpel_hp", data)
@@ -291,7 +291,7 @@ def handle_text_bos(message):
         bot.send_message(chat_id, f"✅ Data Pelanggan **{data['nama']}** berhasil diperbarui!", parse_mode="Markdown", reply_markup=menu_utama())
         return
 
-    # --- ALUR STEP-BY-STEP EDIT LAYANAN ---
+    # --- ALUR EDIT LAYANAN ---
     if step == "editlay_nama":
         data["nama"] = txt
         set_session(chat_id, "editlay_harga", data)
@@ -351,13 +351,12 @@ def handle_text_bos(message):
     if step == "nota_nama":
         data["nama"] = txt
         _, _, list_p = get_all_sheets()
-        # CEK APAKAH PELANGGAN SUDAH ADA DI SPREADSHEET
         pel_exist = next((p for p in list_p[1:] if len(p) > 0 and str(p[0]).lower() == txt.lower()), None)
         
         if pel_exist:
-            data["hp"] = pel_exist[1] if len(pel_exist) > 1 else ""
-            data["alamat"] = pel_exist[2] if len(pel_exist) > 2 else ""
-            bot.send_message(chat_id, f"✅ Pelanggan **{txt}** ditemukan! (No HP: {data['hp']})", parse_mode="Markdown")
+            data["hp"] = str(pel_exist[1]) if len(pel_exist) > 1 else ""
+            data["alamat"] = str(pel_exist[2]) if len(pel_exist) > 2 else ""
+            bot.send_message(chat_id, f"✅ Pelanggan **{txt}** ditemukan!", parse_mode="Markdown")
             minta_pilih_layanan(chat_id, data)
         else:
             set_session(chat_id, "nota_hp", data)
@@ -396,30 +395,57 @@ def handle_text_bos(message):
     if step == "nota_catatan":
         data["catatan"] = "" if txt == "-" else txt
         clear_session(chat_id)
-        bot.send_message(chat_id, "⏳ Memproses nota ke Spreadsheet & mencetak PDF...")
+        
         data_l, _, list_p = get_all_sheets()
 
-        nama, phone, alamat, layanan_nama = data["nama"], data["hp"], data["alamat"], data["layanan"]
-        qty_str, ongkir_str, catatan = data["qty"], data["ongkir"], data["catatan"]
+        nama = data.get("nama", "")
+        phone = data.get("hp", "")
+        alamat = data.get("alamat", "")
+        layanan_nama = data.get("layanan", "")
+        qty_str = data.get("qty", "1")
+        ongkir_str = data.get("ongkir", "0")
+        catatan = data.get("catatan", "")
+
+        # PEMBERITAHUAN TAHAP PROSES
+        bot.send_message(chat_id, "⏳ **Memproses Nota:**\n1️⃣ Menghitung total harga...\n2️⃣ Menyimpan transaksi ke Spreadsheet...\n3️⃣ Membuat PDF Nota Thermal...", parse_mode="Markdown")
 
         pel_exist = next((p for p in list_p[1:] if len(p) > 0 and str(p[0]).lower() == nama.lower()), None)
-        if not pel_exist:
+        if not pel_exist and nama:
             phone_fmt = '62' + phone[1:] if phone.startswith('0') else phone
             send_gas("add_pelanggan", {"row": [nama, phone_fmt, alamat]})
 
         srv = next((l for l in data_l[1:] if len(l) > 0 and str(l[0]).lower() == layanan_nama.lower()), None)
-        harga = int(str(srv[1]).replace('.', '')) if srv else 7000
-        hari = srv[2] if srv else "2"
+        
+        harga = 7000
+        if srv and len(srv) > 1:
+            try:
+                harga = int("".join(filter(str.isdigit, str(srv[1]))))
+            except: pass
+
+        hari = srv[2] if srv and len(srv) > 2 else "2"
         unit = srv[3] if srv and len(srv) > 3 else "Kg"
 
-        qty = float(qty_str.replace(',', '.'))
+        try:
+            qty = float(str(qty_str).replace(',', '.'))
+        except:
+            qty = 1.0
+
         subtotal = int(qty * harga)
-        ongkir = int(ongkir_str.replace('.', '')) if ongkir_str.isdigit() else 0
+        
+        try:
+            ongkir = int("".join(filter(str.isdigit, str(ongkir_str)))) if any(c.isdigit() for c in str(ongkir_str)) else 0
+        except:
+            ongkir = 0
+
         total = subtotal + ongkir
 
         inv = f"HNF-{datetime.now().strftime('%d%m%y%H%M')}"
         tgl_m = datetime.now().strftime("%d/%m/%Y %H:%M")
-        tgl_s = (datetime.now() + timedelta(days=int(hari))).strftime("%d/%m/%Y")
+        
+        try:
+            tgl_s = (datetime.now() + timedelta(days=int(hari))).strftime("%d/%m/%Y")
+        except:
+            tgl_s = (datetime.now() + timedelta(days=2)).strftime("%d/%m/%Y")
 
         send_gas("add_transaksi", {"row": [tgl_m, inv, nama, layanan_nama, qty, total, "Proses", unit, tgl_s, "", catatan]})
 
@@ -444,8 +470,11 @@ def handle_text_bos(message):
             markup = telebot.types.InlineKeyboardMarkup().add(telebot.types.InlineKeyboardButton("📲 Kirim WA", url=url_wa))
 
             with open(pdf, "rb") as f:
-                bot.send_document(chat_id, f, caption="✅ Nota Berhasil Dibuat!", reply_markup=menu_utama())
+                bot.send_document(chat_id, f, caption="✅ **Nota Berhasil Dibuat & Dicetak!**", parse_mode="Markdown", reply_markup=markup)
             os.remove(pdf)
+            bot.send_message(chat_id, "Silakan pilih menu utama:", reply_markup=menu_utama())
+        else:
+            bot.send_message(chat_id, "⚠️ Terjadi kesalahan saat mencetak PDF, tetapi transaksi sudah tersimpan di Spreadsheet.", reply_markup=menu_utama())
         return
 
     bot.send_message(chat_id, "Hanifa Laundry Aktif!", reply_markup=menu_utama())
