@@ -14,8 +14,8 @@ WA_LAUNDRY = os.getenv("WA_LAUNDRY", "085641344448")
 BOS_ID = int(os.getenv("BOS_ID", "1705785645"))
 WEB_OFFICIAL = os.getenv("WEB_OFFICIAL", "hanifalaundry.my.id")
 
-# URL Google Apps Script terbaru kamu
-GAS_URL = "https://script.google.com/macros/s/AKfycbxGy1EzP12gkttVIPI7GHl-H5xivrbXcXR6WyPmkwFlX3QAvu57hygkPkGhV5_p9DDewg/exec"
+# URL Google Apps Script terbaru
+GAS_URL = "https://script.google.com/macros/s/AKfycbwHHdKSQ4xA8WV-8YYZnUQWY4vtmr96THjAsKVoP5woovfmMp023jyHTWRNvtvMFRpfKA/exec"
 
 bot = telebot.TeleBot(TOKEN, threaded=False)
 app = Flask(__name__)
@@ -80,7 +80,6 @@ def create_pdf_thermal(data):
             pdf.set_x(0)
             pdf.cell(58, 2, "- - - - - - - - - - - - - - - - - - - - - - - - - - - - - -", ln=1, align='C')
 
-        # Header
         pdf.set_font("Arial", 'B', 11)
         pdf.set_x(0)
         pdf.cell(58, 5, "HANIFA LAUNDRY", ln=1, align='C')
@@ -96,7 +95,6 @@ def create_pdf_thermal(data):
         pdf.ln(1)
         draw_dashed_line()
 
-        # Info Nota
         pdf.set_font("Arial", '', 7)
         pdf.set_x(3)
         pdf.set_font("Arial", 'B', 7)
@@ -126,7 +124,6 @@ def create_pdf_thermal(data):
         pdf.ln(1)
         draw_dashed_line()
 
-        # Rincian Item
         pdf.set_x(3)
         pdf.set_font("Arial", 'B', 7)
         pdf.cell(22, 4, "Layanan", 0)
@@ -158,7 +155,6 @@ def create_pdf_thermal(data):
         pdf.cell(26, 5, f"Rp {total_num:,}", 0, align='R', ln=1)
         draw_dashed_line()
 
-        # Footer & QR
         pdf.set_font("Arial", 'I', 6)
         pdf.set_x(0)
         pdf.cell(58, 3, "Harap simpan nota ini.", ln=1, align='C')
@@ -197,7 +193,7 @@ def create_pdf_thermal(data):
         print(f"Error PDF: {e}")
         return None
 
-# --- HANDLER UTAMA ---
+# --- HANDLERS UTAMA ---
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     clear_session(message.chat.id)
@@ -238,7 +234,7 @@ def handle_text_bos(message):
 
     step, data = get_session(chat_id)
 
-    # --- MENU TOMBOL UTAMA ---
+    # --- MENU UTAMA ---
     if txt == '📊 Riwayat Nota':
         show_history(message, 1)
         return
@@ -248,6 +244,10 @@ def handle_text_bos(message):
             telebot.types.InlineKeyboardButton("Bulanan", callback_data="oms_bulan"),
             telebot.types.InlineKeyboardButton("Tahunan", callback_data="oms_tahun"))
         bot.send_message(chat_id, "💰 Pilih laporan omset:", reply_markup=m)
+        return
+    elif txt == '⚙️ Tambah Layanan':
+        set_session(chat_id, "addlay_nama", {})
+        bot.send_message(chat_id, "⚙️ Masukkan **Nama Layanan Baru**:", parse_mode="Markdown", reply_markup=tombol_batal())
         return
     elif txt == '👥 Edit Pelanggan':
         _, _, list_p = get_all_sheets()
@@ -266,69 +266,101 @@ def handle_text_bos(message):
         bot.send_message(chat_id, "Pilih layanan yang ingin diedit:", reply_markup=m)
         return
 
+    # --- ALUR TAMBAH LAYANAN ---
+    if step == "addlay_nama":
+        data["nama"] = txt
+        set_session(chat_id, "addlay_harga", data)
+        bot.send_message(chat_id, f"💰 Masukkan **Harga Per Unit** untuk {txt} (Angka saja, misal `7000`):", parse_mode="Markdown", reply_markup=tombol_batal())
+        return
+    if step == "addlay_harga":
+        data["harga"] = txt
+        set_session(chat_id, "addlay_hari", data)
+        bot.send_message(chat_id, "⏱️ Masukkan **Estimasi Pengerjaan (Hari)** (Angka saja, misal `2`):", parse_mode="Markdown", reply_markup=tombol_batal())
+        return
+    if step == "addlay_hari":
+        data["hari"] = txt
+        set_session(chat_id, "addlay_satuan", data)
+        bot.send_message(chat_id, "📏 Masukkan **Satuan** (Contoh: `Kg`, `Pcs`, `Meter`):", parse_mode="Markdown", reply_markup=tombol_batal())
+        return
+    if step == "addlay_satuan":
+        data["satuan"] = txt
+        clear_session(chat_id)
+        send_gas("add_layanan", {"row": [data["nama"], data["harga"], data["hari"], data["satuan"]]})
+        bot.send_message(chat_id, f"✅ Layanan **{data['nama']}** berhasil ditambahkan!", parse_mode="Markdown", reply_markup=menu_utama())
+        return
+
+    # --- ALUR EDIT PELANGGAN ---
+    if step == "editpel_data":
+        parts = [p.strip() for p in txt.split("|")]
+        if len(parts) < 3:
+            bot.send_message(chat_id, "⚠️ Format salah. Masukkan format: `NAMA | HP | ALAMAT`", parse_mode="Markdown", reply_markup=tombol_batal())
+            return
+        row_idx = data["row"]
+        send_gas("update_pelanggan", {"row": row_idx, "data": [parts[0], parts[1], parts[2]]})
+        clear_session(chat_id)
+        bot.send_message(chat_id, f"✅ Data Pelanggan **{parts[0]}** berhasil diperbarui!", parse_mode="Markdown", reply_markup=menu_utama())
+        return
+
+    # --- ALUR EDIT LAYANAN ---
+    if step == "editlay_data":
+        parts = [p.strip() for p in txt.split("|")]
+        if len(parts) < 4:
+            bot.send_message(chat_id, "⚠️ Format salah. Masukkan format: `NAMA | HARGA | HARI | SATUAN`", parse_mode="Markdown", reply_markup=tombol_batal())
+            return
+        row_idx = data["row"]
+        send_gas("update_layanan", {"row": row_idx, "data": [parts[0], parts[1], parts[2], parts[3]]})
+        clear_session(chat_id)
+        bot.send_message(chat_id, f"✅ Layanan **{parts[0]}** berhasil diperbarui!", parse_mode="Markdown", reply_markup=menu_utama())
+        return
+
     # --- ALUR NOTA BARU BERURUTAN ---
     if txt == '📝 Nota Baru':
         set_session(chat_id, "nota_nama", {})
         bot.send_message(chat_id, "👤 Masukkan **Nama Pelanggan**:", parse_mode="Markdown", reply_markup=tombol_batal())
         return
-
     if step == "nota_nama":
         data["nama"] = txt
         set_session(chat_id, "nota_hp", data)
         bot.send_message(chat_id, f"📱 Masukkan **No. WA / HP** {txt}:", parse_mode="Markdown", reply_markup=tombol_batal())
         return
-
     if step == "nota_hp":
         data["hp"] = txt
         set_session(chat_id, "nota_alamat", data)
         bot.send_message(chat_id, "🏠 Masukkan **Alamat** Pelanggan:", parse_mode="Markdown", reply_markup=tombol_batal())
         return
-
     if step == "nota_alamat":
         data["alamat"] = txt
         data_l, _, _ = get_all_sheets()
         markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
         for row in data_l[1:]:
-            if len(row) > 0 and str(row[0]).strip():
-                markup.add(row[0])
+            if len(row) > 0 and str(row[0]).strip(): markup.add(row[0])
         markup.add('❌ BATAL')
         set_session(chat_id, "nota_layanan", data)
         bot.send_message(chat_id, "🧺 Pilih **Layanan Laundry**:", reply_markup=markup)
         return
-
     if step == "nota_layanan":
         data["layanan"] = txt
         set_session(chat_id, "nota_qty", data)
         bot.send_message(chat_id, "⚖️ Masukkan **Jumlah / Qty** (Contoh: `3` atau `2.5`):", parse_mode="Markdown", reply_markup=tombol_batal())
         return
-
     if step == "nota_qty":
         data["qty"] = txt
         set_session(chat_id, "nota_ongkir", data)
         bot.send_message(chat_id, "🚚 Masukkan **Ongkir** (Isi `0` jika tidak ada):", parse_mode="Markdown", reply_markup=tombol_batal())
         return
-
     if step == "nota_ongkir":
         data["ongkir"] = txt
         set_session(chat_id, "nota_catatan", data)
         bot.send_message(chat_id, "📝 Masukkan **Catatan** (atau ketik `-` jika kosong):", parse_mode="Markdown", reply_markup=tombol_batal())
         return
-
     if step == "nota_catatan":
         data["catatan"] = "" if txt == "-" else txt
         clear_session(chat_id)
-        
-        # PROSES PENYIMPANAN DAN BIKIN PDF
         bot.send_message(chat_id, "⏳ Memproses nota ke Spreadsheet & mencetak PDF...")
         data_l, _, list_p = get_all_sheets()
 
-        nama = data["nama"]
-        phone = data["hp"]
-        alamat = data["alamat"]
-        layanan_nama = data["layanan"]
-        qty_str = data["qty"]
-        ongkir_str = data["ongkir"]
-        catatan = data["catatan"]
+        nama, phone, alamat, layanan_nama = data["nama"], data["hp"], data["alamat"], data["layanan"]
+        qty_str, ongkir_str, catatan = data["qty"], data["ongkir"], data["catatan"]
 
         pel_exist = next((p for p in list_p[1:] if len(p) > 0 and str(p[0]).lower() == nama.lower()), None)
         if not pel_exist:
@@ -381,34 +413,69 @@ def handle_text_bos(message):
 @bot.callback_query_handler(func=lambda call: True)
 def callback_router(call):
     try:
-        if call.data.startswith('p_'):
-            bot.delete_message(call.message.chat.id, call.message.message_id)
-            show_history(call.message, int(call.data.split('_')[1]))
-        elif call.data.startswith('view_'):
-            idx = int(call.data.split('_')[1])
+        chat_id = call.message.chat.id
+        data = call.data
+
+        if data.startswith('editpel_'):
+            row_idx = int(data.split('_')[1])
+            _, _, list_p = get_all_sheets()
+            p_data = list_p[row_idx - 1] if row_idx <= len(list_p) else []
+            nama_old = p_data[0] if len(p_data) > 0 else ""
+            hp_old = p_data[1] if len(p_data) > 1 else ""
+            alm_old = p_data[2] if len(p_data) > 2 else ""
+
+            set_session(chat_id, "editpel_data", {"row": row_idx})
+            txt = (f"✏️ **Edit Pelanggan**: {nama_old}\n\n"
+                   f"Ketik data baru dengan format:\n`NAMA | HP | ALAMAT`\n\n"
+                   f"Data saat ini:\n`{nama_old} | {hp_old} | {alm_old}`")
+            bot.send_message(chat_id, txt, parse_mode="Markdown", reply_markup=tombol_batal())
+
+        elif data.startswith('editlay_'):
+            row_idx = int(data.split('_')[1])
+            data_l, _, _ = get_all_sheets()
+            l_data = data_l[row_idx - 1] if row_idx <= len(data_l) else []
+            nama_old = l_data[0] if len(l_data) > 0 else ""
+            hrg_old = l_data[1] if len(l_data) > 1 else ""
+            hari_old = l_data[2] if len(l_data) > 2 else ""
+            sat_old = l_data[3] if len(l_data) > 3 else "Kg"
+
+            set_session(chat_id, "editlay_data", {"row": row_idx})
+            txt = (f"🛠️ **Edit Layanan**: {nama_old}\n\n"
+                   f"Ketik data baru dengan format:\n`NAMA | HARGA | HARI | SATUAN`\n\n"
+                   f"Data saat ini:\n`{nama_old} | {hrg_old} | {hari_old} | {sat_old}`")
+            bot.send_message(chat_id, txt, parse_mode="Markdown", reply_markup=tombol_batal())
+
+        elif data.startswith('p_'):
+            bot.delete_message(chat_id, call.message.message_id)
+            show_history(call.message, int(data.split('_')[1]))
+
+        elif data.startswith('view_'):
+            idx = int(data.split('_')[1])
             _, all_trans, _ = get_all_sheets()
             if idx <= len(all_trans):
                 r = all_trans[idx - 1]
                 st = r[6] if len(r) > 6 else "Proses"
                 icon = "⏳" if st == "Proses" else "✅" if st == "Selesai" else "🧺"
-                txt = (f"📋 DETAIL NOTA\n---------------------------\n👤 {r[2]}\n🎫 {r[1]}\n🧺 {r[3]}\n💰 Rp {r[5]}\n{icon} Status: {st}")
+                txt_view = (f"📋 DETAIL NOTA\n---------------------------\n👤 {r[2]}\n🎫 {r[1]}\n🧺 {r[3]}\n💰 Rp {r[5]}\n{icon} Status: {st}")
                 m = telebot.types.InlineKeyboardMarkup()
                 m.add(telebot.types.InlineKeyboardButton("⏳ Proses", callback_data=f"u_{idx}_Proses"),
                       telebot.types.InlineKeyboardButton("✅ Selesai", callback_data=f"u_{idx}_Selesai"))
                 m.add(telebot.types.InlineKeyboardButton("🧺 Diambil", callback_data=f"u_{idx}_Diambil"))
                 m.row(telebot.types.InlineKeyboardButton("🖨️ Print Ulang", callback_data=f"pr_{idx}"),
                       telebot.types.InlineKeyboardButton("📲 Kirim WA", callback_data=f"rw_{idx}"))
-                bot.edit_message_text(txt, call.message.chat.id, call.message.message_id, reply_markup=m)
-        elif call.data.startswith('u_'):
-            _, idx, st = call.data.split('_')
+                bot.edit_message_text(txt_view, chat_id, call.message.message_id, reply_markup=m)
+
+        elif data.startswith('u_'):
+            _, idx, st = data.split('_')
             idx = int(idx)
             send_gas("update_cell", {"sheet_name": "transaksi", "row": idx, "col": 7, "value": st})
             if st == "Diambil":
                 send_gas("update_cell", {"sheet_name": "transaksi", "row": idx, "col": 10, "value": datetime.now().strftime("%d/%m/%Y %H:%M")})
             bot.answer_callback_query(call.id, f"Status: {st}")
-            bot.send_message(call.message.chat.id, f"✅ Nota diupdate ke: {st}", reply_markup=menu_utama())
-        elif call.data.startswith('pr_'):
-            idx = int(call.data.split('_')[1])
+            bot.send_message(chat_id, f"✅ Nota diupdate ke: {st}", reply_markup=menu_utama())
+
+        elif data.startswith('pr_'):
+            idx = int(data.split('_')[1])
             _, all_trans, _ = get_all_sheets()
             if idx <= len(all_trans):
                 r = all_trans[idx - 1]
@@ -419,17 +486,18 @@ def callback_router(call):
                 }
                 pdf = create_pdf_thermal(d_p)
                 if pdf:
-                    with open(pdf, "rb") as f: bot.send_document(call.message.chat.id, f)
+                    with open(pdf, "rb") as f: bot.send_document(chat_id, f)
                     os.remove(pdf)
-        elif call.data.startswith('oms_'):
-            tipe = call.data.split('_')[1]
-            _, data, _ = get_all_sheets()
+
+        elif data.startswith('oms_'):
+            tipe = data.split('_')[1]
+            _, data_trans, _ = get_all_sheets()
             total = 0
             now = datetime.now()
             tgl_skrg = now.strftime("%d/%m/%Y")
             bln_skrg = now.strftime("%m/%Y")
             thn_skrg = now.strftime("%Y")
-            for r in data[1:]:
+            for r in data_trans[1:]:
                 try:
                     if len(r) > 9 and r[6] == "Diambil" and str(r[9]).strip() != "":
                         tgl_ambil_full = str(r[9]).split()[0]
@@ -441,7 +509,8 @@ def callback_router(call):
                             angka = "".join(filter(str.isdigit, str(r[5])))
                             if angka: total += int(angka)
                 except: continue
-            bot.edit_message_text(f"💰 OMSET {tipe.upper()}: Rp {total:,}", call.message.chat.id, call.message.message_id)
+            bot.edit_message_text(f"💰 OMSET {tipe.upper()}: Rp {total:,}", chat_id, call.message.message_id)
+
     except Exception as e:
         print(f"Callback Error: {e}")
 
