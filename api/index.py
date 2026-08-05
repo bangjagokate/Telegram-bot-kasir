@@ -191,12 +191,42 @@ def create_pdf_thermal(data):
         print(f"Error PDF: {e}")
         return None
 
-# --- HANDLERS UTAMA ---
+# --- HANDLER START / SCAN QR ---
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     clear_session(message.chat.id)
+    args = message.text.split()
+    
+    # JIKA ADA PARAMETER (Contoh: /start HNF-0508261244)
+    if len(args) > 1:
+        nota_id = str(args[1]).strip().upper()
+        _, all_trans, _ = get_all_sheets()
+        found = next((row for row in all_trans[1:] if len(row) > 1 and str(row[1]).strip().upper() == nota_id), None)
+        if found:
+            status_txt = str(found[6]).strip() if len(found) > 6 else "Proses"
+            icon = "⏳" if status_txt == "Proses" else "✅" if status_txt == "Selesai" else "🧺"
+            unit_txt = found[7] if len(found) > 7 else "Kg"
+            qty_info = f"{found[4]} {unit_txt}" if len(found) > 4 else ""
+            
+            val_tot = "".join(filter(str.isdigit, str(found[5])))
+            tot_fmt = f"{int(val_tot):,}" if val_tot else str(found[5])
+
+            balasan = (f"📋 DETAIL NOTA\n---------------------------\n"
+                      f"👤 {found[2]}\n🎫 {found[1]}\n"
+                      f"🧺 {found[3]}\n📦 Qty: {qty_info}\n"
+                      f"💰 Rp {tot_fmt}\n---------------------------\n"
+                      f"📌 Status: {icon} {status_txt}\n---------------------------\n"
+                      f"🌐 {WEB_OFFICIAL}\nTerima kasih!")
+            bot.send_message(message.chat.id, balasan)
+        else:
+            bot.send_message(message.chat.id, f"❌ Nota **{nota_id}** tidak ditemukan.", parse_mode="Markdown")
+        return
+
+    # JIKA START BIASA
     if is_bos(message):
         bot.send_message(message.chat.id, "Hanifa Laundry Aktif!", reply_markup=menu_utama())
+    else:
+        bot.send_message(message.chat.id, "Selamat Datang di Hanifa Laundry Bot!\nScan QR Code pada nota Anda untuk mengecek status cucian.")
 
 def show_history(m, page):
     _, data, _ = get_all_sheets()
@@ -536,7 +566,6 @@ def callback_router(call):
                     with open(pdf, "rb") as f: bot.send_document(chat_id, f)
                     os.remove(pdf)
 
-        # --- LOGIKA OMSET FIX ELASTIS ---
         elif data.startswith('oms_'):
             tipe = data.split('_')[1]
             _, data_trans, _ = get_all_sheets()
@@ -550,18 +579,12 @@ def callback_router(call):
             for r in data_trans[1:]:
                 try:
                     if len(r) > 6 and "diambil" in str(r[6]).lower():
-                        # Ambil nilai total bayar (hanya angka)
                         val_total = "".join(filter(str.isdigit, str(r[5])))
-                        if not val_total:
-                            continue
+                        if not val_total: continue
                         
-                        # Ambil string tanggal dari Tgl Diambil (kolom 9) atau Tgl Masuk (kolom 0)
                         tgl_str = str(r[9]).strip() if len(r) > 9 and str(r[9]).strip() else str(r[0]).strip()
-                        
-                        # Cari angka tanggal, bulan, tahun menggunakan REGEX agar tidak peduli pemisah
                         nums = re.findall(r'\d+', tgl_str)
                         if len(nums) >= 3:
-                            # Jika format DD/MM/YYYY atau YYYY-MM-DD
                             if len(nums[0]) == 4:
                                 row_y, row_m, row_d = int(nums[0]), int(nums[1]), int(nums[2])
                             else:
@@ -575,10 +598,8 @@ def callback_router(call):
                             elif tipe == "tahun" and row_y == y_now:
                                 cocok = True
 
-                            if cocok:
-                                total += int(val_total)
+                            if cocok: total += int(val_total)
                         else:
-                            # Opsi cadangan jika tanggal tidak terurai: hitung langsung jika status "Diambil"
                             total += int(val_total)
                 except Exception as err:
                     print(f"Error parse omset: {err}")
