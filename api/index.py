@@ -13,8 +13,6 @@ TOKEN = os.getenv("BOT_TOKEN", "7614899277:AAGhUBOI3atXqRb2IyHmO45CxC0elgDK16M")
 WA_LAUNDRY = os.getenv("WA_LAUNDRY", "085641344448")
 BOS_ID = int(os.getenv("BOS_ID", "1705785645"))
 WEB_OFFICIAL = os.getenv("WEB_OFFICIAL", "hanifalaundry.my.id")
-
-# URL Google Apps Script terbaru
 GAS_URL = "https://script.google.com/macros/s/AKfycbwHHdKSQ4xA8WV-8YYZnUQWY4vtmr96THjAsKVoP5woovfmMp023jyHTWRNvtvMFRpfKA/exec"
 
 bot = telebot.TeleBot(TOKEN, threaded=False)
@@ -220,6 +218,15 @@ def show_history(m, page):
         markup.row(*nav)
     bot.send_message(m.chat.id, f"📊 Riwayat Nota - Halaman {page}", reply_markup=markup)
 
+def minta_pilih_layanan(chat_id, data):
+    data_l, _, _ = get_all_sheets()
+    markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+    for row in data_l[1:]:
+        if len(row) > 0 and str(row[0]).strip(): markup.add(row[0])
+    markup.add('❌ BATAL')
+    set_session(chat_id, "nota_layanan", data)
+    bot.send_message(chat_id, f"👤 Pelanggan: **{data['nama']}**\n🧺 Pilih **Layanan Laundry**:", parse_mode="Markdown", reply_markup=markup)
+
 @bot.message_handler(func=lambda m: True)
 def handle_text_bos(message):
     if not is_bos(message): return
@@ -266,21 +273,62 @@ def handle_text_bos(message):
         bot.send_message(chat_id, "Pilih layanan yang ingin diedit:", reply_markup=m)
         return
 
+    # --- ALUR STEP-BY-STEP EDIT PELANGGAN ---
+    if step == "editpel_nama":
+        data["nama"] = txt
+        set_session(chat_id, "editpel_hp", data)
+        bot.send_message(chat_id, f"📱 Masukkan **No. WA / HP Baru** untuk {txt}:", parse_mode="Markdown", reply_markup=tombol_batal())
+        return
+    if step == "editpel_hp":
+        data["hp"] = txt
+        set_session(chat_id, "editpel_alamat", data)
+        bot.send_message(chat_id, "🏠 Masukkan **Alamat Baru**:", parse_mode="Markdown", reply_markup=tombol_batal())
+        return
+    if step == "editpel_alamat":
+        data["alamat"] = txt
+        send_gas("update_pelanggan", {"row": data["row"], "data": [data["nama"], data["hp"], data["alamat"]]})
+        clear_session(chat_id)
+        bot.send_message(chat_id, f"✅ Data Pelanggan **{data['nama']}** berhasil diperbarui!", parse_mode="Markdown", reply_markup=menu_utama())
+        return
+
+    # --- ALUR STEP-BY-STEP EDIT LAYANAN ---
+    if step == "editlay_nama":
+        data["nama"] = txt
+        set_session(chat_id, "editlay_harga", data)
+        bot.send_message(chat_id, f"💰 Masukkan **Harga Baru** untuk {txt}:", parse_mode="Markdown", reply_markup=tombol_batal())
+        return
+    if step == "editlay_harga":
+        data["harga"] = txt
+        set_session(chat_id, "editlay_hari", data)
+        bot.send_message(chat_id, "⏱️ Masukkan **Estimasi Pengerjaan Baru (Hari)**:", parse_mode="Markdown", reply_markup=tombol_batal())
+        return
+    if step == "editlay_hari":
+        data["hari"] = txt
+        set_session(chat_id, "editlay_satuan", data)
+        bot.send_message(chat_id, "📏 Masukkan **Satuan Baru** (Contoh: `Kg`, `Pcs`):", parse_mode="Markdown", reply_markup=tombol_batal())
+        return
+    if step == "editlay_satuan":
+        data["satuan"] = txt
+        send_gas("update_layanan", {"row": data["row"], "data": [data["nama"], data["harga"], data["hari"], data["satuan"]]})
+        clear_session(chat_id)
+        bot.send_message(chat_id, f"✅ Layanan **{data['nama']}** berhasil diperbarui!", parse_mode="Markdown", reply_markup=menu_utama())
+        return
+
     # --- ALUR TAMBAH LAYANAN ---
     if step == "addlay_nama":
         data["nama"] = txt
         set_session(chat_id, "addlay_harga", data)
-        bot.send_message(chat_id, f"💰 Masukkan **Harga Per Unit** untuk {txt} (Angka saja, misal `7000`):", parse_mode="Markdown", reply_markup=tombol_batal())
+        bot.send_message(chat_id, f"💰 Masukkan **Harga Per Unit** untuk {txt}:", parse_mode="Markdown", reply_markup=tombol_batal())
         return
     if step == "addlay_harga":
         data["harga"] = txt
         set_session(chat_id, "addlay_hari", data)
-        bot.send_message(chat_id, "⏱️ Masukkan **Estimasi Pengerjaan (Hari)** (Angka saja, misal `2`):", parse_mode="Markdown", reply_markup=tombol_batal())
+        bot.send_message(chat_id, "⏱️ Masukkan **Estimasi Pengerjaan (Hari)**:", parse_mode="Markdown", reply_markup=tombol_batal())
         return
     if step == "addlay_hari":
         data["hari"] = txt
         set_session(chat_id, "addlay_satuan", data)
-        bot.send_message(chat_id, "📏 Masukkan **Satuan** (Contoh: `Kg`, `Pcs`, `Meter`):", parse_mode="Markdown", reply_markup=tombol_batal())
+        bot.send_message(chat_id, "📏 Masukkan **Satuan** (Contoh: `Kg`, `Pcs`):", parse_mode="Markdown", reply_markup=tombol_batal())
         return
     if step == "addlay_satuan":
         data["satuan"] = txt
@@ -289,70 +337,62 @@ def handle_text_bos(message):
         bot.send_message(chat_id, f"✅ Layanan **{data['nama']}** berhasil ditambahkan!", parse_mode="Markdown", reply_markup=menu_utama())
         return
 
-    # --- ALUR EDIT PELANGGAN ---
-    if step == "editpel_data":
-        parts = [p.strip() for p in txt.split("|")]
-        if len(parts) < 3:
-            bot.send_message(chat_id, "⚠️ Format salah. Masukkan format: `NAMA | HP | ALAMAT`", parse_mode="Markdown", reply_markup=tombol_batal())
-            return
-        row_idx = data["row"]
-        send_gas("update_pelanggan", {"row": row_idx, "data": [parts[0], parts[1], parts[2]]})
-        clear_session(chat_id)
-        bot.send_message(chat_id, f"✅ Data Pelanggan **{parts[0]}** berhasil diperbarui!", parse_mode="Markdown", reply_markup=menu_utama())
-        return
-
-    # --- ALUR EDIT LAYANAN ---
-    if step == "editlay_data":
-        parts = [p.strip() for p in txt.split("|")]
-        if len(parts) < 4:
-            bot.send_message(chat_id, "⚠️ Format salah. Masukkan format: `NAMA | HARGA | HARI | SATUAN`", parse_mode="Markdown", reply_markup=tombol_batal())
-            return
-        row_idx = data["row"]
-        send_gas("update_layanan", {"row": row_idx, "data": [parts[0], parts[1], parts[2], parts[3]]})
-        clear_session(chat_id)
-        bot.send_message(chat_id, f"✅ Layanan **{parts[0]}** berhasil diperbarui!", parse_mode="Markdown", reply_markup=menu_utama())
-        return
-
     # --- ALUR NOTA BARU BERURUTAN ---
     if txt == '📝 Nota Baru':
+        _, _, list_p = get_all_sheets()
+        markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+        for r in list_p[1:]:
+            if r and len(r) > 0 and str(r[0]).strip(): markup.add(r[0])
+        markup.add('❌ BATAL')
         set_session(chat_id, "nota_nama", {})
-        bot.send_message(chat_id, "👤 Masukkan **Nama Pelanggan**:", parse_mode="Markdown", reply_markup=tombol_batal())
+        bot.send_message(chat_id, "👤 Masukkan atau pilih **Nama Pelanggan**:", reply_markup=markup)
         return
+
     if step == "nota_nama":
         data["nama"] = txt
-        set_session(chat_id, "nota_hp", data)
-        bot.send_message(chat_id, f"📱 Masukkan **No. WA / HP** {txt}:", parse_mode="Markdown", reply_markup=tombol_batal())
+        _, _, list_p = get_all_sheets()
+        # CEK APAKAH PELANGGAN SUDAH ADA DI SPREADSHEET
+        pel_exist = next((p for p in list_p[1:] if len(p) > 0 and str(p[0]).lower() == txt.lower()), None)
+        
+        if pel_exist:
+            data["hp"] = pel_exist[1] if len(pel_exist) > 1 else ""
+            data["alamat"] = pel_exist[2] if len(pel_exist) > 2 else ""
+            bot.send_message(chat_id, f"✅ Pelanggan **{txt}** ditemukan! (No HP: {data['hp']})", parse_mode="Markdown")
+            minta_pilih_layanan(chat_id, data)
+        else:
+            set_session(chat_id, "nota_hp", data)
+            bot.send_message(chat_id, f"📱 Masukkan **No. WA / HP** {txt}:", parse_mode="Markdown", reply_markup=tombol_batal())
         return
+
     if step == "nota_hp":
         data["hp"] = txt
         set_session(chat_id, "nota_alamat", data)
         bot.send_message(chat_id, "🏠 Masukkan **Alamat** Pelanggan:", parse_mode="Markdown", reply_markup=tombol_batal())
         return
+
     if step == "nota_alamat":
         data["alamat"] = txt
-        data_l, _, _ = get_all_sheets()
-        markup = telebot.types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-        for row in data_l[1:]:
-            if len(row) > 0 and str(row[0]).strip(): markup.add(row[0])
-        markup.add('❌ BATAL')
-        set_session(chat_id, "nota_layanan", data)
-        bot.send_message(chat_id, "🧺 Pilih **Layanan Laundry**:", reply_markup=markup)
+        minta_pilih_layanan(chat_id, data)
         return
+
     if step == "nota_layanan":
         data["layanan"] = txt
         set_session(chat_id, "nota_qty", data)
         bot.send_message(chat_id, "⚖️ Masukkan **Jumlah / Qty** (Contoh: `3` atau `2.5`):", parse_mode="Markdown", reply_markup=tombol_batal())
         return
+
     if step == "nota_qty":
         data["qty"] = txt
         set_session(chat_id, "nota_ongkir", data)
         bot.send_message(chat_id, "🚚 Masukkan **Ongkir** (Isi `0` jika tidak ada):", parse_mode="Markdown", reply_markup=tombol_batal())
         return
+
     if step == "nota_ongkir":
         data["ongkir"] = txt
         set_session(chat_id, "nota_catatan", data)
         bot.send_message(chat_id, "📝 Masukkan **Catatan** (atau ketik `-` jika kosong):", parse_mode="Markdown", reply_markup=tombol_batal())
         return
+
     if step == "nota_catatan":
         data["catatan"] = "" if txt == "-" else txt
         clear_session(chat_id)
@@ -421,29 +461,18 @@ def callback_router(call):
             _, _, list_p = get_all_sheets()
             p_data = list_p[row_idx - 1] if row_idx <= len(list_p) else []
             nama_old = p_data[0] if len(p_data) > 0 else ""
-            hp_old = p_data[1] if len(p_data) > 1 else ""
-            alm_old = p_data[2] if len(p_data) > 2 else ""
-
-            set_session(chat_id, "editpel_data", {"row": row_idx})
-            txt = (f"✏️ **Edit Pelanggan**: {nama_old}\n\n"
-                   f"Ketik data baru dengan format:\n`NAMA | HP | ALAMAT`\n\n"
-                   f"Data saat ini:\n`{nama_old} | {hp_old} | {alm_old}`")
-            bot.send_message(chat_id, txt, parse_mode="Markdown", reply_markup=tombol_batal())
+            
+            set_session(chat_id, "editpel_nama", {"row": row_idx})
+            bot.send_message(chat_id, f"✏️ Edit Pelanggan: **{nama_old}**\n\nMasukkan **Nama Baru** (atau ketik `{nama_old}` jika tidak diubah):", parse_mode="Markdown", reply_markup=tombol_batal())
 
         elif data.startswith('editlay_'):
             row_idx = int(data.split('_')[1])
             data_l, _, _ = get_all_sheets()
             l_data = data_l[row_idx - 1] if row_idx <= len(data_l) else []
             nama_old = l_data[0] if len(l_data) > 0 else ""
-            hrg_old = l_data[1] if len(l_data) > 1 else ""
-            hari_old = l_data[2] if len(l_data) > 2 else ""
-            sat_old = l_data[3] if len(l_data) > 3 else "Kg"
 
-            set_session(chat_id, "editlay_data", {"row": row_idx})
-            txt = (f"🛠️ **Edit Layanan**: {nama_old}\n\n"
-                   f"Ketik data baru dengan format:\n`NAMA | HARGA | HARI | SATUAN`\n\n"
-                   f"Data saat ini:\n`{nama_old} | {hrg_old} | {hari_old} | {sat_old}`")
-            bot.send_message(chat_id, txt, parse_mode="Markdown", reply_markup=tombol_batal())
+            set_session(chat_id, "editlay_nama", {"row": row_idx})
+            bot.send_message(chat_id, f"🛠️ Edit Layanan: **{nama_old}**\n\nMasukkan **Nama Layanan Baru** (atau ketik `{nama_old}` jika tidak diubah):", parse_mode="Markdown", reply_markup=tombol_batal())
 
         elif data.startswith('p_'):
             bot.delete_message(chat_id, call.message.message_id)
