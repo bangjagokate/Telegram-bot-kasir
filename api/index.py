@@ -13,8 +13,6 @@ TOKEN = os.getenv("BOT_TOKEN", "7614899277:AAGhUBOI3atXqRb2IyHmO45CxC0elgDK16M")
 WA_LAUNDRY = os.getenv("WA_LAUNDRY", "085641344448")
 BOS_ID = int(os.getenv("BOS_ID", "1705785645"))
 WEB_OFFICIAL = os.getenv("WEB_OFFICIAL", "hanifalaundry.my.id")
-
-# URL Google Apps Script terbaru
 GAS_URL = "https://script.google.com/macros/s/AKfycbyQWYBB9-c19X5jCJgMjA5nBQA5XFYVps4QP_zcgEnAIyY3DUXGUpWd5_yCAoJ_Y272nw/exec"
 
 bot = telebot.TeleBot(TOKEN, threaded=False)
@@ -538,33 +536,52 @@ def callback_router(call):
                     with open(pdf, "rb") as f: bot.send_document(chat_id, f)
                     os.remove(pdf)
 
+        # --- LOGIKA OMSET FIX ELASTIS ---
         elif data.startswith('oms_'):
             tipe = data.split('_')[1]
             _, data_trans, _ = get_all_sheets()
             total = 0
             now = datetime.now()
-            tgl_skrg = now.strftime("%d/%m/%Y")
-            bln_skrg = now.strftime("%m/%Y")
-            thn_skrg = now.strftime("%Y")
+
+            d_now = now.day
+            m_now = now.month
+            y_now = now.year
 
             for r in data_trans[1:]:
                 try:
-                    if len(r) > 6:
-                        status_str = str(r[6]).strip()
-                        if status_str == "Diambil":
-                            tgl_ref = str(r[9]).strip() if len(r) > 9 and str(r[9]).strip() != "" else str(r[0]).strip()
-                            tgl_saja = tgl_ref.split()[0] if " " in tgl_ref else tgl_ref
+                    if len(r) > 6 and "diambil" in str(r[6]).lower():
+                        # Ambil nilai total bayar (hanya angka)
+                        val_total = "".join(filter(str.isdigit, str(r[5])))
+                        if not val_total:
+                            continue
+                        
+                        # Ambil string tanggal dari Tgl Diambil (kolom 9) atau Tgl Masuk (kolom 0)
+                        tgl_str = str(r[9]).strip() if len(r) > 9 and str(r[9]).strip() else str(r[0]).strip()
+                        
+                        # Cari angka tanggal, bulan, tahun menggunakan REGEX agar tidak peduli pemisah
+                        nums = re.findall(r'\d+', tgl_str)
+                        if len(nums) >= 3:
+                            # Jika format DD/MM/YYYY atau YYYY-MM-DD
+                            if len(nums[0]) == 4:
+                                row_y, row_m, row_d = int(nums[0]), int(nums[1]), int(nums[2])
+                            else:
+                                row_d, row_m, row_y = int(nums[0]), int(nums[1]), int(nums[2])
 
                             cocok = False
-                            if tipe == "hari" and tgl_saja == tgl_skrg: cocok = True
-                            elif tipe == "bulan" and bln_skrg in tgl_saja: cocok = True
-                            elif tipe == "tahun" and thn_skrg in tgl_saja: cocok = True
+                            if tipe == "hari" and row_d == d_now and row_m == m_now and row_y == y_now:
+                                cocok = True
+                            elif tipe == "bulan" and row_m == m_now and row_y == y_now:
+                                cocok = True
+                            elif tipe == "tahun" and row_y == y_now:
+                                cocok = True
 
                             if cocok:
-                                val_total = "".join(filter(str.isdigit, str(r[5])))
-                                if val_total: total += int(val_total)
+                                total += int(val_total)
+                        else:
+                            # Opsi cadangan jika tanggal tidak terurai: hitung langsung jika status "Diambil"
+                            total += int(val_total)
                 except Exception as err:
-                    print(f"Error hitung omset: {err}")
+                    print(f"Error parse omset: {err}")
                     continue
 
             bot.edit_message_text(f"💰 OMSET {tipe.upper()}: Rp {total:,}", chat_id, call.message.message_id)
